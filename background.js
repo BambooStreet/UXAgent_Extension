@@ -1,3 +1,14 @@
+chrome.runtime.onInstalled.addListener(() => {
+  // sidePanel 권한/지원 여부가 없는 환경에서도 안 죽게 방어
+  if (chrome.sidePanel?.setPanelBehavior) {
+    chrome.sidePanel
+      .setPanelBehavior({ openPanelOnActionClick: true })
+      .catch(console.error);
+  } else {
+    console.log("sidePanel API not available (permission missing or unsupported Chrome).");
+  }
+});
+
 async function callOpenAICompatible({ baseUrl, apiKey, model, prompt }) {
   // OpenAI-compatible: POST {baseUrl}/v1/chat/completions
   // ※ 공급자마다 필드명이 조금씩 다를 수 있어. 안 맞으면 여기만 고치면 됨.
@@ -12,6 +23,7 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, prompt }) {
     temperature: 0.2
   };
 
+  console.log("[AI] requesting", url, "model=", model);
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -20,6 +32,7 @@ async function callOpenAICompatible({ baseUrl, apiKey, model, prompt }) {
     },
     body: JSON.stringify(body)
   });
+  console.log("[AI] status", res.status);
 
   const txt = await res.text();
   if (!res.ok) throw new Error(`AI API error ${res.status}: ${txt.slice(0, 400)}`);

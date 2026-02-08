@@ -1,14 +1,13 @@
 {
   "manifest_version": 3,
   "name": "UX Capture + AI (Local Demo)",
-  "version": "0.1.0",
-  "description": "Capture simple HTML + elements + screenshot and ask AI for next action recommendations.",
-  "action": { "default_popup": "popup.html" },
-  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "version": "0.2.0",
+  "permissions": ["sidePanel", "activeTab", "tabs", "scripting", "storage"],
   "host_permissions": [
-    "https://api.openai.com/*",
-    "http://localhost/*",
-    "https://localhost/*"
+    "<all_urls>",
+    "https://api.openai.com/*"
   ],
-  "background": { "service_worker": "background.js" }
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": {}
 }

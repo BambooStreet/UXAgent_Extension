@@ -1,3 +1,5 @@
+console.log("[sidepanel] loaded");
+
 const $ = (id) => document.getElementById(id);
 
 async function getActiveTab() {
