@@ -70,7 +70,17 @@ $("captureAsk").addEventListener("click", async () => {
     if (!resp?.ok) throw new Error(resp?.error || "Unknown error");
 
     setOut(resp.answer || "(no answer)");
+    setDebugPrompt(resp.debugPrompt || "(no debugPrompt returned)");
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
+  }
+
+  function setDebugPrompt(txt) {
+  const el = document.getElementById("debugPrompt");
+  if (!el) return;
+
+  const max = 30000; // 너무 길면 패널이 버벅일 수 있어서 표시용 제한
+  const s = String(txt || "");
+  el.textContent = s.length > max ? s.slice(0, max) + "\n\n... (truncated)" : s;
   }
 });

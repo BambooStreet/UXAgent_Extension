@@ -92,7 +92,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const prompt = buildPrompt({ task, page });
     const answer = await callOpenAICompatible({ baseUrl, apiKey, model, prompt });
 
-    sendResponse({ ok: true, answer });
+    sendResponse({ ok: true, answer, debugPrompt: prompt });
   })().catch(e => {
     sendResponse({ ok: false, error: String(e?.message || e) });
   });
