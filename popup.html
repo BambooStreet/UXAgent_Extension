@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; }
+      .wrap { width: 360px; padding: 12px; }
+      h1 { font-size: 15px; margin: 0 0 8px; }
+      label { display:block; font-size: 12px; margin-top: 10px; }
+      input, textarea { width: 100%; box-sizing: border-box; padding: 8px; }
+      textarea { height: 64px; resize: vertical; }
+      button { width: 100%; padding: 10px; margin-top: 10px; cursor: pointer; }
+      pre { white-space: pre-wrap; background:#f6f6f6; padding:8px; border-radius:6px; font-size:12px; }
+      .row { display:flex; gap:8px; }
+      .row > * { flex: 1; }
+      .hint { font-size: 11px; color:#666; margin-top:6px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>UX Capture + AI (Local Demo)</h1>
+
+      <label>Task</label>
+      <input id="task" placeholder="예: 자켓 검색 후 필터 적용 → 상품 상세 진입" />
+
+      <div class="row">
+        <div>
+          <label>API Base (OpenAI-compatible)</label>
+          <input id="baseUrl" value="https://api.openai.com" />
+        </div>
+        <div>
+          <label>Model</label>
+          <input id="model" value="gpt-4.1-mini" />
+        </div>
+      </div>
+
+      <label>API Key</label>
+      <input id="apiKey" placeholder="로컬 데모용. 배포 금지." />
+      <div class="hint">⚠️ 키를 확장에 저장하는 방식은 데모 전용입니다. 나중엔 서버 프록시로 옮기세요.</div>
+
+      <button id="captureAsk">Capture & Ask</button>
+
+      <label>AI Output</label>
+      <pre id="out">Ready.</pre>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
