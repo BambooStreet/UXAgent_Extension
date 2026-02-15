@@ -51,14 +51,24 @@ const captureSchema = new mongoose.Schema({
       tabIndex: Number
     }
   }],
-  aiPrompt: {
-    type: String,
-    required: true
-  },
-  aiResponse: {
-    type: String,
-    required: true
-  },
+  overlayTexts: [{
+    tag: String,
+    role: String,
+    className: String,
+    text: String,
+    rect: {
+      x: Number,
+      y: Number,
+      w: Number,
+      h: Number
+    },
+    zIndex: Number,
+    position: String
+  }],
+  reasoningPrompt: String,
+  reasoningOutput: String,
+  actionPrompt: String,
+  actionOutput: String,
   stepNumber: {
     type: Number,
     required: true

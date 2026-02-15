@@ -22,7 +22,12 @@ const taskSchema = new mongoose.Schema({
   captureCount: {
     type: Number,
     default: 0
-  }
+  },
+  memoryStream: [{
+    step: Number,
+    url: String,
+    summary: String
+  }]
 }, {
   timestamps: true
 });

@@ -4,26 +4,31 @@ const Task = require('../models/Task');
 const Capture = require('../models/Capture');
 
 // OpenAI API 호출 함수
-async function callOpenAI(prompt) {
+async function callOpenAI(prompt, moduleLabel) {
   const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com';
   const apiKey = process.env.OPENAI_API_KEY;
   const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
   const url = baseUrl.replace(/\/$/, "") + "/v1/chat/completions";
 
+  const systemPrompts = {
+    reasoning: "당신은 UX 리서치 분석가입니다. 현재 페이지 상태를 분석하고, 팝업/모달을 감지하며, 태스크 진행도를 평가하고, 전략을 수립하세요. 간결하고 구조적으로 한국어로 답변하세요.",
+    action: "당신은 UX 액션 추천가입니다. 상황 분석을 바탕으로 정확히 하나의 구체적인 사용자 액션을 추천하세요. 페이지의 특정 인터랙티브 요소에 매칭하여 정확하게 안내하세요. 한국어로 답변하세요."
+  };
+
   const body = {
     model,
     messages: [
       {
         role: "system",
-        content: "You are a UX research assistant. Recommend the next user action without controlling the browser."
+        content: systemPrompts[moduleLabel] || systemPrompts.reasoning
       },
       { role: "user", content: prompt }
     ],
     temperature: 0.2
   };
 
-  console.log("[AI] requesting", url, "model=", model);
+  console.log(`[AI:${moduleLabel}] requesting`, url, "model=", model);
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -33,7 +38,7 @@ async function callOpenAI(prompt) {
     body: JSON.stringify(body)
   });
 
-  console.log("[AI] status", res.status);
+  console.log(`[AI:${moduleLabel}] status`, res.status);
   const txt = await res.text();
 
   if (!res.ok) {
@@ -47,12 +52,72 @@ async function callOpenAI(prompt) {
   return String(answer);
 }
 
-// 프롬프트 생성 함수
-function buildPrompt({ taskName, page }) {
+// Reasoning 프롬프트 생성
+function buildReasoningPrompt({ taskName, page, memoryStream }) {
+  // 태그별 개수 요약
+  const tagCounts = {};
+  for (const el of page.elements) {
+    tagCounts[el.tag] = (tagCounts[el.tag] || 0) + 1;
+  }
+  const tagSummary = Object.entries(tagCounts)
+    .map(([tag, count]) => `${tag}: ${count}`)
+    .join(', ');
+
+  // 오버레이 텍스트
+  let overlaySection = '';
+  if (page.overlayTexts && page.overlayTexts.length > 0) {
+    const overlayItems = page.overlayTexts.map((o, i) =>
+      `  [Overlay ${i + 1}] <${o.tag}>${o.role ? ` role="${o.role}"` : ''} z-index:${o.zIndex} position:${o.position}\n    Text: "${o.text}"`
+    ).join('\n');
+    overlaySection = `\n\nDetected Popups/Modals/Overlays:\n${overlayItems}`;
+  } else {
+    overlaySection = '\n\nDetected Popups/Modals/Overlays: None';
+  }
+
+  // 메모리 스트림 (최근 10개)
+  let memorySection = '';
+  if (memoryStream && memoryStream.length > 0) {
+    const recent = memoryStream.slice(-10);
+    const memoryItems = recent.map(m =>
+      `  Step ${m.step} (${m.url}): ${m.summary}`
+    ).join('\n');
+    memorySection = `\n\nPrevious Steps (Memory Stream):\n${memoryItems}`;
+  } else {
+    memorySection = '\n\nPrevious Steps: This is the first capture.';
+  }
+
+  return `
+Task: ${taskName}
+
+Current Page:
+- URL: ${page.url}
+- Title: ${page.title}
+- Viewport: ${JSON.stringify(page.viewport)}
+- Interactive Elements Summary: ${tagSummary} (total: ${page.elements.length})
+${overlaySection}
+${memorySection}
+
+아래 형식으로 한국어로 분석해주세요:
+
+**현재 상태**: 사용자가 현재 어떤 페이지/화면에 있는지, 무엇이 보이는지 설명
+
+**팝업 분석**: 페이지를 가리는 팝업, 모달, 오버레이가 있는지? 있다면 내용과 목적을 설명. 없으면 "팝업 없음"
+
+**진행도 평가**: 메모리 스트림을 바탕으로 태스크 완료까지 얼마나 진행되었는지, 무엇을 했고 무엇이 남았는지
+
+**전략**: 태스크 목표를 향해 다음에 무엇을 해야 하는지. 팝업이 있다면 닫아야 하는지 상호작용해야 하는지
+
+**주의사항**: 주의해야 할 점 (예: 최소주문금액, 로그인 필요, 품절 등)
+  `.trim();
+}
+
+// Action 프롬프트 생성
+function buildActionPrompt({ taskName, reasoningOutput, page }) {
+  // interactive 요소 상위 60개
   const elementsPreview = page.elements
     .slice(0, 60)
     .map(e => {
-      const styleInfo = `color:${e.style?.color || 'N/A'} bg:${e.style?.backgroundColor || 'N/A'} fontSize:${e.style?.fontSize || 'N/A'}`;
+      const styleInfo = `color:${e.style?.color || 'N/A'} bg:${e.style?.backgroundColor || 'N/A'} fontSize:${e.style?.fontSize || 'N/A'} position:${e.style?.position || 'static'} zIndex:${e.style?.zIndex || 'auto'}`;
       const interactionInfo = e.interaction
         ? `clickable:${e.interaction.clickable} disabled:${e.interaction.disabled}`
         : '';
@@ -60,36 +125,57 @@ function buildPrompt({ taskName, page }) {
     })
     .join("\n");
 
+  // 오버레이 텍스트
+  let overlaySection = '';
+  if (page.overlayTexts && page.overlayTexts.length > 0) {
+    const overlayItems = page.overlayTexts.map((o, i) =>
+      `  [Overlay ${i + 1}] <${o.tag}> z-index:${o.zIndex} position:${o.position}\n    Text: "${o.text}"`
+    ).join('\n');
+    overlaySection = `\nDetected Overlays:\n${overlayItems}\n`;
+  }
+
   return `
-Task:
-${taskName}
+Task: ${taskName}
 
-Current page:
-- url: ${page.url}
-- title: ${page.title}
-- viewport: ${JSON.stringify(page.viewport)}
+Situation Analysis (from reasoning module):
+${reasoningOutput}
 
-Interactive elements (top 60, with visual & interaction info):
+Interactive Elements (top 60, sorted by z-index - modals/popups first):
 ${elementsPreview}
+${overlaySection}
+위 상황 분석을 바탕으로 정확히 하나의 액션을 추천하세요. 아래 형식으로 한국어로 출력:
 
-Please output:
-1) UI/UX 특징(짧게) 3개 - 색상, 크기, 배치 등 시각적 특징 포함
+**대상 요소**: 어떤 요소와 상호작용할지 (item ID 사용, 예: item3)
 
-2) 다음으로 사용자가 해야 할 추천 액션 1개만
-   - 어떤 요소를 클릭하거나 입력해야 하는지
-   - 해당 요소의 시각적 특징 (색상, 위치, 크기 등)
-   - 왜 그 액션을 해야 하는지 (Task 목표와 연관)
-   - 주의할 점이 있다면
+**액션 유형**: click / type / select / scroll / navigate-back
 
-3) 현재 뷰포트 분석
-   - 만약 Task 목표를 달성하기 위한 적절한 요소를 찾을 수 없다면:
-     * "스크롤을 내려서 더 많은 옵션/정보 확인"을 권장하거나
-     * "뒤로가기하여 다른 경로 탐색"을 권장
-   - 적절한 요소가 있다면 이 섹션은 생략
+**액션 상세**: 구체적인 지시 (예: "'장바구니 담기' 버튼을 클릭" 또는 "검색창에 '도넛' 입력")
 
-4) 다음 캡처 타이밍
-   - 추천 액션 수행 후 어떤 상태에서 다음 캡처를 해야 하는지
+**시각적 위치**: 화면에서 해당 요소의 위치 (예: "우측 상단, 파란색 버튼에 흰색 텍스트")
+
+**근거**: 왜 이 액션이 태스크 목표를 향한 최선의 다음 단계인지
+
+**다음 캡처 타이밍**: 다음 캡처를 언제 해야 하는지 (예: "검색 결과가 로드된 후" 또는 "팝업이 닫힌 후")
+
+**단계 요약**: 이 단계가 무엇을 달성하는지 한 문장 요약 (예: "쿠팡에서 '도넛' 검색" 또는 "최소주문금액 팝업 닫기")
   `.trim();
+}
+
+// Action 출력에서 Step Summary 추출
+function extractStepSummary(actionOutput) {
+  // **단계 요약**: ... 또는 **Step Summary**: ... 패턴 매칭
+  const summaryMatch = actionOutput.match(/\*\*(?:단계 요약|Step Summary)\*\*:\s*(.+)/i);
+  if (summaryMatch) {
+    return summaryMatch[1].trim();
+  }
+
+  // fallback: **액션 상세**: ... 또는 **Action Detail**: ... 에서 추출
+  const actionMatch = actionOutput.match(/\*\*(?:액션 상세|Action Detail)\*\*:\s*(.+)/i);
+  if (actionMatch) {
+    return actionMatch[1].trim();
+  }
+
+  return 'Action performed';
 }
 
 // POST /api/tasks - Task 시작
@@ -104,7 +190,8 @@ router.post('/tasks', async (req, res) => {
     const task = new Task({
       taskName: taskName.trim(),
       status: 'active',
-      captureCount: 0
+      captureCount: 0,
+      memoryStream: []
     });
 
     await task.save();
@@ -144,10 +231,10 @@ router.put('/tasks/:taskId/end', async (req, res) => {
   }
 });
 
-// POST /api/captures - 캡처 데이터 저장 + AI 호출
+// POST /api/captures - 캡처 데이터 저장 + AI 호출 (Reasoning → Action 2단계)
 router.post('/captures', async (req, res) => {
   try {
-    const { taskId, url, title, viewport, elements } = req.body;
+    const { taskId, url, title, viewport, elements, overlayTexts } = req.body;
 
     // Task 확인
     const task = await Task.findById(taskId);
@@ -159,38 +246,64 @@ router.post('/captures', async (req, res) => {
       return res.status(400).json({ error: 'Task is not active' });
     }
 
-    // 프롬프트 생성
-    const page = { url, title, viewport, elements };
-    const prompt = buildPrompt({ taskName: task.taskName, page });
+    const page = { url, title, viewport, elements, overlayTexts: overlayTexts || [] };
 
-    // AI 호출
-    const aiResponse = await callOpenAI(prompt);
+    // 1. Reasoning 모듈 호출
+    const reasoningPrompt = buildReasoningPrompt({
+      taskName: task.taskName,
+      page,
+      memoryStream: task.memoryStream || []
+    });
 
-    // stepNumber 계산 (현재 Task의 캡처 수 + 1)
+    const reasoningOutput = await callOpenAI(reasoningPrompt, 'reasoning');
+
+    // 2. Action 모듈 호출
+    const actionPrompt = buildActionPrompt({
+      taskName: task.taskName,
+      reasoningOutput,
+      page
+    });
+
+    const actionOutput = await callOpenAI(actionPrompt, 'action');
+
+    // 3. Step Summary 추출
+    const stepSummary = extractStepSummary(actionOutput);
+
+    // 4. stepNumber 계산
     const stepNumber = task.captureCount + 1;
 
-    // Capture 저장
+    // 5. Capture 저장
     const capture = new Capture({
       taskId: task._id,
       url,
       title,
       viewport,
       elements,
-      aiPrompt: prompt,
-      aiResponse,
+      overlayTexts: page.overlayTexts,
+      reasoningPrompt,
+      reasoningOutput,
+      actionPrompt,
+      actionOutput,
       stepNumber
     });
 
     await capture.save();
 
-    // Task의 captureCount 증가
+    // 6. Task 업데이트: captureCount 증가 + memoryStream에 step summary 추가
     task.captureCount += 1;
+    task.memoryStream.push({
+      step: stepNumber,
+      url,
+      summary: stepSummary
+    });
     await task.save();
 
+    // 7. 응답
     res.json({
       captureId: capture._id.toString(),
-      aiResponse,
-      debugPrompt: prompt
+      reasoningOutput,
+      actionOutput,
+      debugPrompt: `=== REASONING PROMPT ===\n${reasoningPrompt}\n\n=== ACTION PROMPT ===\n${actionPrompt}`
     });
   } catch (error) {
     console.error('Error creating capture:', error);
