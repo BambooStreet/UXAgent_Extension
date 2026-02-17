@@ -2,6 +2,12 @@ console.log("[sidepanel] loaded");
 
 const $ = (id) => document.getElementById(id);
 
+// 백엔드 서버 URL
+const SERVER_URL = "http://localhost:3000";
+
+// 전역 상태 관리
+let currentTask = null; // { taskId, taskName, captureCount }
+
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("활성 탭을 찾지 못했습니다.");
@@ -15,72 +21,142 @@ async function injectContentScript(tabId) {
   });
 }
 
-async function loadSettings() {
-  const s = await chrome.storage.local.get(["apiKey", "baseUrl", "model"]);
-  if (s.apiKey) $("apiKey").value = s.apiKey;
-  if (s.baseUrl) $("baseUrl").value = s.baseUrl;
-  if (s.model) $("model").value = s.model;
-}
-
-async function saveSettings() {
-  await chrome.storage.local.set({
-    apiKey: $("apiKey").value.trim(),
-    baseUrl: $("baseUrl").value.trim(),
-    model: $("model").value.trim()
-  });
-}
-
 function setOut(txt) {
   $("out").textContent = txt;
 }
 
-loadSettings();
+function setReasoningOut(txt) {
+  $("reasoningOut").textContent = txt;
+}
 
-$("captureAsk").addEventListener("click", async () => {
+function setActionOut(txt) {
+  $("actionOut").textContent = txt;
+}
+
+function setDebugPrompt(txt) {
+  const el = $("debugPrompt");
+  if (!el) return;
+  const max = 30000;
+  const s = String(txt || "");
+  el.textContent = s.length > max ? s.slice(0, max) + "\n\n... (truncated)" : s;
+}
+
+// Task 시작 플로우
+$("startTask").addEventListener("click", async () => {
   try {
-    setOut("Capturing...");
-    await saveSettings();
+    const taskName = $("taskName").value.trim();
+    if (!taskName) {
+      alert("Task 이름을 입력하세요");
+      return;
+    }
 
-    const task = $("task").value.trim() || "Untitled task";
-    const apiKey = $("apiKey").value.trim();
-    const baseUrl = $("baseUrl").value.trim();
-    const model = $("model").value.trim();
+    setOut("Task 시작 중...");
 
-    if (!apiKey) throw new Error("API Key를 입력하세요.");
-
-    const tab = await getActiveTab();
-    await injectContentScript(tab.id);
-
-    // 1) 페이지에서 DOM/요소맵 추출
-    const extracted = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT" });
-
-    // 2) background로 보내서 스크린샷 + AI 호출
-    setOut("Calling AI...");
-    const resp = await chrome.runtime.sendMessage({
-      type: "CAPTURE_AND_ASK",
-      payload: {
-        task,
-        baseUrl,
-        model,
-        apiKey,
-        page: extracted
-      }
+    // 백엔드에 Task 생성 요청
+    const resp = await fetch(`${SERVER_URL}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskName })
     });
 
-    if (!resp?.ok) throw new Error(resp?.error || "Unknown error");
+    if (!resp.ok) {
+      const error = await resp.json();
+      throw new Error(error.error || "Task 생성 실패");
+    }
 
-    setOut(resp.answer || "(no answer)");
-    setDebugPrompt(resp.debugPrompt || "(no debugPrompt returned)");
+    const data = await resp.json();
+
+    currentTask = { taskId: data.taskId, taskName, captureCount: 0 };
+
+    // UI 상태 변경
+    $("taskSection").style.display = "none";
+    $("activeTaskSection").style.display = "block";
+    $("currentTaskName").textContent = taskName;
+    $("captureCount").textContent = "0";
+    setOut(`Task 시작됨: ${taskName}`);
+    setReasoningOut("Ready.");
+    setActionOut("Ready.");
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
   }
+});
 
-  function setDebugPrompt(txt) {
-  const el = document.getElementById("debugPrompt");
-  if (!el) return;
+// Capture 플로우
+$("captureViewport").addEventListener("click", async () => {
+  try {
+    if (!currentTask) {
+      alert("Task를 먼저 시작하세요");
+      return;
+    }
 
-  const max = 30000; // 너무 길면 패널이 버벅일 수 있어서 표시용 제한
-  const s = String(txt || "");
-  el.textContent = s.length > max ? s.slice(0, max) + "\n\n... (truncated)" : s;
+    setOut("Capturing...");
+    setReasoningOut("...");
+    setActionOut("...");
+
+    // 1. content.js에서 DOM 추출
+    const tab = await getActiveTab();
+    await injectContentScript(tab.id);
+    const extracted = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT" });
+
+    // 2. 백엔드로 전송 (Reasoning → Action 2단계 AI 호출)
+    setOut("Reasoning...");
+    const resp = await fetch(`${SERVER_URL}/api/captures`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        taskId: currentTask.taskId,
+        url: extracted.url,
+        title: extracted.title,
+        viewport: extracted.viewport,
+        elements: extracted.elements,
+        overlayTexts: extracted.overlayTexts || []
+      })
+    });
+
+    if (!resp.ok) {
+      const error = await resp.json();
+      throw new Error(error.error || "Capture 저장 실패");
+    }
+
+    const data = await resp.json();
+
+    // UI 업데이트
+    currentTask.captureCount++;
+    $("captureCount").textContent = currentTask.captureCount;
+    setOut(`Step ${currentTask.captureCount} complete.`);
+    setReasoningOut(data.reasoningOutput);
+    setActionOut(data.actionOutput);
+    setDebugPrompt(data.debugPrompt);
+  } catch (e) {
+    setOut(`Error: ${e?.message || e}`);
+    setReasoningOut("Error occurred.");
+    setActionOut("Error occurred.");
+  }
+});
+
+// Task 종료 플로우
+$("endTask").addEventListener("click", async () => {
+  try {
+    if (!currentTask) return;
+
+    setOut("Task 종료 중...");
+
+    const captureCount = currentTask.captureCount;
+
+    await fetch(`${SERVER_URL}/api/tasks/${currentTask.taskId}/end`, {
+      method: "PUT"
+    });
+
+    // UI 초기화
+    currentTask = null;
+    $("taskSection").style.display = "block";
+    $("activeTaskSection").style.display = "none";
+    $("taskName").value = "";
+    setOut(`Task 종료됨. 총 ${captureCount}개 캡처.`);
+    setReasoningOut("Ready.");
+    setActionOut("Ready.");
+    setDebugPrompt("(empty)");
+  } catch (e) {
+    setOut(`Error: ${e?.message || e}`);
   }
 });

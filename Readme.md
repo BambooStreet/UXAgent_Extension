@@ -1,109 +1,184 @@
-# UX Capture + AI (Local Demo)
+# UX Capture + AI Extension
 
-브라우저 자동화(Playwright 등) 없이, **사용자가 실제로 보고 있는 웹페이지**(네이버쇼핑/쿠팡/11번가 등)에서  
-**(1) UI 구조 데이터(simple HTML + 상호작용 요소 맵) + (2) 스크린샷**을 캡처하고,  
-그 결과를 바탕으로 **AI가 다음 행동을 “추천”**하도록 만드는 크롬 확장 MVP입니다.
+Chrome extension for capturing and analyzing UX flows with AI assistance and MongoDB storage.
 
-> 목표: 여러 이커머스 사이트에서 구매 플로우를 단계별로 관찰/기록하고, UX/UI 특징을 비교 분석하기 위한 데이터 수집 파이프라인 구축  
-> 특징: **브라우저 조작(자동 클릭/타이핑) 없이 “관찰/기록”만** 수행 → 자동화 탐지/차단 리스크를 낮춤
+## Overview
 
----
+브라우저 자동화 없이, **사용자가 실제로 탐색하는 웹페이지**에서 UI 구조를 캡처하고 AI가 다음 행동을 추천하는 크롬 확장입니다.
 
-## What it does (MVP Flow)
+**v0.3.0의 주요 변경사항:**
+- ✅ **Task 세션 관리**: 여러 캡처를 하나의 Task로 묶어 관리
+- ✅ **MongoDB 통합**: 모든 캡처와 AI 응답을 데이터베이스에 저장
+- ✅ **보안 강화**: API Key를 서버에서 관리 (확장에서 제거)
+- ✅ **Side Panel UI**: 탐색 중 지속적으로 표시되는 UI
 
-1. 사용자가 일반 크롬에서 원하는 사이트를 정상적으로 탐색한다.  
-2. 확장 아이콘(팝업)에서 `Task`를 입력하고 `Capture & Ask`를 클릭한다.  
-3. 확장이 현재 탭에서 아래를 수집한다.
-   - **simpleHtml**: 분석용으로 정제된 HTML(스크립트/스타일 제거, 값 마스킹, 길이 제한)
-   - **elements**: 클릭/입력 가능한 요소 목록(라벨/selector/좌표 등)
-   - **screenshot**: 현재 보이는 화면(뷰포트) 스크린샷
-4. AI API(OpenAI-compatible)에 요청하여
-   - UI/UX 특징 요약
-   - 다음 추천 액션 Top 3
-   - 다음 캡처 타이밍
-   을 받아 팝업에 출력한다.
-5. 사용자는 추천을 참고해 직접 다음 페이지로 이동하고, 반복한다.
+## Features
 
----
+- **Task-based Session Management**: 여러 페이지 탐색을 하나의 Task로 그룹화
+- **Real-time AI Analysis**: 각 페이지마다 UX 인사이트와 추천 액션 제공
+- **MongoDB Integration**: 모든 데이터를 데이터베이스에 자동 저장
+- **Secure API Key Management**: API Key를 서버에서만 관리하여 보안 강화
+- **No Browser Automation**: 자동 클릭/타이핑 없이 관찰만 수행 (차단 리스크 최소화)
 
-## Project Structure
+## Architecture
 
-- `manifest.json`  
-  크롬 확장 설정 파일(MV3).  
-  팝업 UI 연결, 권한(activeTab/storage/tabs), API 호출 대상 도메인(host_permissions) 등을 정의합니다.
-
-- `popup.html`  
-  확장 아이콘 클릭 시 뜨는 **팝업 UI**.  
-  Task / API Base URL / Model / API Key 입력 및 결과 출력 영역을 포함합니다.
-
-- `popup.js`  
-  팝업 동작 로직.
-  - 현재 활성 탭을 찾고
-  - `content.js`를 주입(inject)한 뒤
-  - 페이지에서 추출된 데이터(EXTRACT 결과)를 받아
-  - `background.js`에 “캡처+AI 호출”을 요청합니다.
-  - 입력값(API Key/Base/Model)은 `chrome.storage.local`에 저장합니다.
-
-- `content.js`  
-  **페이지 내부에서 실행되는 스크립트(Content Script)**로,
-  - 현재 페이지의 DOM을 읽어 `simpleHtml`을 생성하고
-  - 클릭/입력 가능한 요소 목록(`elements`)을 추출합니다.
-  - 자동 클릭/조작은 하지 않고 **관찰만** 수행합니다.
-
-- `background.js`  
-  **서비스 워커(Background, MV3)**.
-  - 활성 탭의 **뷰포트 스크린샷**을 캡처하고
-  - OpenAI-compatible endpoint(`/v1/chat/completions`)로 AI 요청을 보낸 뒤
-  - 응답을 popup에 반환합니다.
-
----
+```
+┌─────────────────┐
+│  Chrome Extension│
+│  (sidepanel.js)  │
+└────────┬─────────┘
+         │
+         │ HTTP
+         │
+┌────────▼─────────┐      ┌──────────────┐
+│  Express Server  │◄────►│   MongoDB    │
+│   (server.js)    │      │   (Atlas)    │
+└────────┬─────────┘      └──────────────┘
+         │
+         │ OpenAI API
+         │
+┌────────▼─────────┐
+│   OpenAI API     │
+│  (GPT-4.1-mini)  │
+└──────────────────┘
+```
 
 ## Installation
 
-1. 크롬에서 `chrome://extensions` 접속
-2. 우측 상단 **Developer mode** ON
-3. **Load unpacked** 클릭 → 이 프로젝트 폴더 선택
-4. (선택) 확장 목록에서 핀(📌) 고정
+### 1. Install the Extension
 
----
+1. Open Chrome and go to `chrome://extensions/`
+2. Enable "Developer mode" (top right)
+3. Click "Load unpacked"
+4. Select the project root directory
+
+### 2. Set up the Backend Server
+
+See [server/README.md](server/README.md) for detailed instructions.
+
+Quick start:
+```bash
+cd server
+npm install
+cp .env.example .env
+# Edit .env with your MongoDB URI and OpenAI API Key
+npm start
+```
 
 ## Usage
 
-1. 네이버쇼핑 등 분석할 페이지를 **일반 크롬**에서 열기
-2. 확장 팝업 열기 → `Task`, `API Base`, `Model`, `API Key` 입력
-3. `Capture & Ask` 클릭
-4. AI Output에 추천 액션이 출력되면, 사용자가 직접 수행 → 다음 페이지에서 반복
+### Starting a Task
 
----
+1. Click the extension icon to open the side panel
+2. Enter a task name (e.g., "네이버쇼핑 노트북 검색 플로우")
+3. Click "Task 시작"
+
+### Capturing Pages
+
+1. Navigate to the page you want to analyze
+2. Click "현재 viewport 탐색"
+3. Wait for AI analysis to complete
+4. Read the recommendations
+5. Manually navigate to the next page (based on recommendations)
+6. Repeat step 2-5
+
+### Ending a Task
+
+1. Click "Task 종료" when you're done
+2. View the summary showing total captures
+
+### Viewing Data in MongoDB
+
+All data is stored in MongoDB Atlas. You can:
+- View tasks and captures in MongoDB Compass
+- Query data using MongoDB queries
+- Export data for further analysis
+
+## Project Structure
+
+```
+UXAgent_Extension/
+├── manifest.json          # Extension manifest (v3)
+├── sidepanel.html         # Extension UI (side panel)
+├── sidepanel.js          # Extension logic (Task management)
+├── background.js         # Extension background worker
+├── content.js            # DOM extraction script (no automation)
+└── server/
+    ├── server.js         # Express server + MongoDB
+    ├── .env             # Environment variables (MongoDB URI, API Key)
+    ├── models/
+    │   ├── Task.js       # Task schema
+    │   └── Capture.js    # Capture schema
+    └── routes/
+        └── api.js        # API endpoints
+```
+
+## How it Works
+
+1. **User starts a Task**: Creates a new session in MongoDB
+2. **User navigates normally**: No automation, just regular browsing
+3. **User clicks "현재 viewport 탐색"**:
+   - Extension extracts DOM elements (visible, interactive elements only)
+   - Sends data to backend server
+   - Server calls OpenAI API with structured prompt
+   - Server saves capture + AI response to MongoDB
+4. **User reads AI recommendations**: UI/UX insights and suggested next actions
+5. **User manually performs actions**: Navigate to next page
+6. **Repeat steps 3-5** until task is complete
+7. **User ends Task**: Marks session as completed in MongoDB
+
+## Development
+
+### Key Changes from v0.2.0
+
+- ✅ Removed API key storage from extension (security improvement)
+- ✅ Added Task session management (better data organization)
+- ✅ Integrated MongoDB for data persistence
+- ✅ Moved AI logic to backend server
+- ✅ Changed from popup to side panel UI
+- ✅ Removed screenshot capture (not stored, per requirements)
+
+### Testing
+
+1. Start the server: `cd server && npm start`
+2. Load the extension in Chrome (`chrome://extensions`)
+3. Open an e-commerce site (e.g., Naver Shopping, Coupang)
+4. Create a new task with a descriptive name
+5. Click "현재 viewport 탐색" multiple times (3-5 times) as you navigate
+6. End the task
+7. Check MongoDB Atlas to verify data was saved
 
 ## Configuration
 
-- **API Base**: 기본값 `https://api.openai.com`  
-  OpenAI-compatible 서버를 쓰는 경우(예: LiteLLM 프록시) 해당 주소로 변경하면 됩니다.
+### Server Configuration
 
-- **Model**: 예) `gpt-4.1-mini`  
-  사용 중인 API/계정에서 지원하는 모델명을 입력하세요.
+Edit `server/.env`:
+- `MONGODB_URI`: Your MongoDB Atlas connection string
+- `OPENAI_API_KEY`: Your OpenAI API key
+- `OPENAI_BASE_URL`: OpenAI-compatible endpoint (default: https://api.openai.com)
+- `OPENAI_MODEL`: Model to use (default: gpt-4.1-mini)
+- `PORT`: Server port (default: 3000)
 
----
+### Extension Configuration
 
-## Security Notes (Important)
+No configuration needed! API key is managed on the server.
 
-⚠️ **이 MVP는 로컬 데모 용도**입니다.  
-현재 구조는 팝업에서 입력한 API Key를 `chrome.storage.local`에 저장하고, 확장이 직접 API를 호출합니다.
+## Security Notes
 
-- 개인 테스트/로컬 데모엔 편하지만,
-- 확장 배포/공유/팀 사용에는 부적합합니다(키 유출 위험).
-
-✅ 다음 단계(권장): **서버 프록시 방식**으로 전환하여 API Key를 서버에만 보관하세요.
-
----
+✅ **API Key Protection**: API keys are stored only on the server, never in the extension
+✅ **No Browser Automation**: Only observes pages, doesn't click or type automatically
+✅ **CORS Enabled**: Server allows requests from extension
+✅ **MongoDB Atlas**: Free tier supports 512MB storage
 
 ## Roadmap (Next)
 
-- 팝업 대신 **Side Panel UI** 제공(탐색 중 지속 표시)
-- 캡처 데이터(JSON/PNG)를 로컬 다운로드로 저장하거나 세션 단위로 묶기(Run/Step)
-- PII(개인정보) 마스킹 강화(입력값/메일/전화/주소 등)
-- 스크린샷/DOM 기반 UX 지표 추출(요소 밀도, CTA 위치, 필터 접근성 등)
-- 서버 프록시 도입(키 보호 + 로그/데이터셋 자동 축적)
+- [ ] Task history view (list all previous tasks)
+- [ ] Capture replay (view previous captures from a task)
+- [ ] Export task data (JSON/CSV)
+- [ ] Enhanced PII masking (personal information in captured data)
+- [ ] UX metrics extraction (element density, CTA positions, filter accessibility)
+- [ ] Multi-site comparison (compare UX flows across different sites)
 
----
+## License
+
+MIT

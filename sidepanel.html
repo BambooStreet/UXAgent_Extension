@@ -6,46 +6,60 @@
       body { font-family: system-ui, sans-serif; margin: 0; }
       .wrap { width: 360px; padding: 12px; }
       h1 { font-size: 15px; margin: 0 0 8px; }
-      label { display:block; font-size: 12px; margin-top: 10px; }
+      label { display:block; font-size: 12px; margin-top: 10px; font-weight: bold; }
       input, textarea { width: 100%; box-sizing: border-box; padding: 8px; }
       textarea { height: 64px; resize: vertical; }
       button { width: 100%; padding: 10px; margin-top: 10px; cursor: pointer; }
+      button.primary { background: #1a73e8; color: white; border: none; border-radius: 4px; }
+      button.primary:hover { background: #1557b0; }
+      button.danger { background: #d93025; color: white; border: none; border-radius: 4px; }
+      button.danger:hover { background: #b3221b; }
       pre { white-space: pre-wrap; background:#f6f6f6; padding:8px; border-radius:6px; font-size:12px; }
-      .row { display:flex; gap:8px; }
-      .row > * { flex: 1; }
-      .hint { font-size: 11px; color:#666; margin-top:6px; }
+      .task-info { background: #e8f0fe; padding: 10px; border-radius: 6px; margin-top: 10px; font-size: 12px; }
+      .task-info strong { display: block; margin-bottom: 4px; }
+      details { margin-top: 6px; }
+      details summary { cursor: pointer; font-size: 12px; color: #555; }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1>UX Capture + AI (Local Demo)</h1>
+      <h1>UX Capture + AI</h1>
 
-      <label>Task</label>
-      <input id="task" placeholder="예: 자켓 검색 후 필터 적용 → 상품 상세 진입" />
-
-      <div class="row">
-        <div>
-          <label>API Base (OpenAI-compatible)</label>
-          <input id="baseUrl" value="https://api.openai.com" />
-        </div>
-        <div>
-          <label>Model</label>
-          <input id="model" value="gpt-4.1-mini" />
-        </div>
+      <!-- Task 세션 영역 -->
+      <div id="taskSection">
+        <label>Task 이름</label>
+        <input id="taskName" placeholder="예: 네이버쇼핑 노트북 검색 플로우" />
+        <button id="startTask" class="primary">Task 시작</button>
       </div>
 
-      <label>API Key</label>
-      <input id="apiKey" placeholder="로컬 데모용. 배포 금지." />
-      <div class="hint">⚠️ 키를 확장에 저장하는 방식은 데모 전용입니다. 나중엔 서버 프록시로 옮기세요.</div>
+      <!-- Task 진행 중일 때만 표시 -->
+      <div id="activeTaskSection" style="display:none">
+        <div class="task-info">
+          <strong>진행 중 Task: <span id="currentTaskName"></span></strong>
+          <small>캡처 횟수: <span id="captureCount">0</span></small>
+        </div>
 
-      <button id="captureAsk">Capture & Ask</button>
+        <button id="captureViewport" class="primary">현재 viewport 탐색</button>
+        <button id="endTask" class="danger">Task 종료</button>
+      </div>
 
-      <label>AI Output</label>
-      <pre id="out">Ready.</pre>
+      <!-- 상태 메시지 -->
+      <pre id="out" style="font-size:11px; color:#666;">Ready.</pre>
 
-      <label>AI Input (Debug)</label>
+      <!-- Reasoning 출력 (접을 수 있음) -->
+      <label>AI 상황 분석</label>
+      <details open>
+        <summary>상세 보기</summary>
+        <pre id="reasoningOut">Ready.</pre>
+      </details>
+
+      <!-- Action 출력 (녹색 강조) -->
+      <label>추천 액션</label>
+      <pre id="actionOut" style="background:#e8f5e9; border-left:3px solid #4caf50;">Ready.</pre>
+
+      <!-- 디버그 프롬프트 -->
       <details>
-        <summary>Show prompt</summary>
+        <summary>Show prompts (debug)</summary>
         <pre id="debugPrompt">(empty)</pre>
       </details>
     </div>

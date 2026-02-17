@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "UX Capture + AI (Local Demo)",
-  "version": "0.2.0",
-  "permissions": ["sidePanel", "activeTab", "tabs", "scripting", "storage"],
+  "name": "UX Capture + AI",
+  "version": "0.3.0",
+  "permissions": ["sidePanel", "activeTab", "tabs", "scripting"],
   "host_permissions": [
     "<all_urls>",
-    "https://api.openai.com/*"
+    "http://localhost:3000/*"
   ],
   "background": { "service_worker": "background.js" },
   "side_panel": { "default_path": "sidepanel.html" },
