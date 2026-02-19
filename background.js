@@ -18,10 +18,10 @@ function validateCommand(command) {
   if (!ALLOWED_ACTIONS.includes(command.action)) {
     return `허용되지 않은 action: ${command.action}`;
   }
-  // selector가 필요한 액션들
-  const needsSelector = ["click", "type", "select", "hover"];
-  if (needsSelector.includes(command.action) && !command.selector) {
-    return `${command.action} 액션에는 selector가 필요합니다.`;
+  // selector 또는 eid가 필요한 액션들
+  const needsTarget = ["click", "type", "select", "hover"];
+  if (needsTarget.includes(command.action) && !command.selector && !command.eid) {
+    return `${command.action} 액션에는 selector 또는 eid가 필요합니다.`;
   }
   if (command.action === "navigate" && !command.url) {
     return "navigate 액션에는 url이 필요합니다.";
@@ -66,6 +66,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log("[background] navigated to:", command.url);
         sendResponse({ success: true, log: `${command.url}로 이동했습니다.` });
         return;
+      }
+
+      // 4.5. eid → selector 해석 (eid가 있고 selector가 없는 경우)
+      if (command.eid && !command.selector) {
+        console.log("[background] resolving eid:", command.eid);
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["ax-extract.js"]
+        });
+
+        const eidResult = await chrome.tabs.sendMessage(tab.id, {
+          type: "RESOLVE_EID",
+          eid: command.eid
+        });
+
+        if (!eidResult?.found || !eidResult.selector) {
+          sendResponse({ success: false, error: `Element ${command.eid} not found on page` });
+          return;
+        }
+
+        command.selector = eidResult.selector;
+        console.log("[background] eid resolved:", command.eid, "→", command.selector);
       }
 
       // 5. DOM 조작 액션: runner.js 주입 후 메시지 전달

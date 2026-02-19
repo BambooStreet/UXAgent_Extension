@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Task = require('../models/Task');
 const Capture = require('../models/Capture');
+const { buildObservation, pruneForPrompt, formatElementForPrompt, formatTreeSummaryForPrompt } = require('../lib/observation');
 
 // OpenAI API 호출 함수
 async function callOpenAI(prompt, moduleLabel) {
@@ -54,15 +55,11 @@ async function callOpenAI(prompt, moduleLabel) {
 }
 
 // Observe 프롬프트 생성
-function buildObservePrompt({ taskName, page, lastStep }) {
-  // 태그별 개수 요약
-  const tagCounts = {};
-  for (const el of page.elements) {
-    tagCounts[el.tag] = (tagCounts[el.tag] || 0) + 1;
-  }
-  const tagSummary = Object.entries(tagCounts)
-    .map(([tag, count]) => `${tag}: ${count}`)
-    .join(', ');
+function buildObservePrompt({ taskName, page, lastStep, observation }) {
+  // AX tree summary (if available)
+  const treeSummary = observation?.ax?.tree_summary
+    ? formatTreeSummaryForPrompt(observation.ax.tree_summary)
+    : '';
 
   // 오버레이 텍스트
   let overlaySection = '';
@@ -75,12 +72,13 @@ function buildObservePrompt({ taskName, page, lastStep }) {
     overlaySection = '\nDetected Popups/Modals/Overlays: None';
   }
 
-  // 이전 액션 정보
+  // 이전 액션 정보 (eid 기반)
   let prevActionSection = '';
   if (lastStep) {
+    const eidInfo = lastStep.eid ? ` (eid: ${lastStep.eid})` : '';
     prevActionSection = `
 Previous Action (Step ${lastStep.step}):
-- Summary: ${lastStep.summary}
+- Summary: ${lastStep.summary}${eidInfo}
 - Status: ${lastStep.status}
 - Target URL at that time: ${lastStep.url}${lastStep.error ? `\n- Error: ${lastStep.error}` : ''}`;
   } else {
@@ -94,7 +92,7 @@ Current Page State:
 - URL: ${page.url}
 - Title: ${page.title}
 - Viewport: ${JSON.stringify(page.viewport)}
-- Interactive Elements: ${tagSummary} (total: ${page.elements.length})
+- AX Tree Summary: ${treeSummary}
 ${overlaySection}
 ${prevActionSection}
 
@@ -160,18 +158,24 @@ Observe 모듈의 관찰 결과와 메모리 스트림을 바탕으로, 아래 �
 }
 
 // Action 프롬프트 생성
-function buildActionPrompt({ taskName, reasoningOutput, page }) {
-  // interactive 요소 상위 60개
-  const elementsPreview = page.elements
-    .slice(0, 60)
-    .map(e => {
-      const styleInfo = `color:${e.style?.color || 'N/A'} bg:${e.style?.backgroundColor || 'N/A'} fontSize:${e.style?.fontSize || 'N/A'} position:${e.style?.position || 'static'} zIndex:${e.style?.zIndex || 'auto'}`;
-      const interactionInfo = e.interaction
-        ? `clickable:${e.interaction.clickable} disabled:${e.interaction.disabled}`
-        : '';
-      return `- ${e.id} ${e.tag}${e.role ? `[role=${e.role}]` : ""} selector="${e.selector || ''}" label="${e.label}" rect=${JSON.stringify(e.rect)} style={${styleInfo}} interaction={${interactionInfo}}`;
-    })
-    .join("\n");
+function buildActionPrompt({ taskName, reasoningOutput, page, observation }) {
+  // AX elements (pruned, eid-based)
+  let elementsPreview = '';
+  if (observation?.ax?.interactive_elements?.length > 0) {
+    const pruned = pruneForPrompt(observation.ax.interactive_elements, 50);
+    elementsPreview = pruned.map(el => `- ${formatElementForPrompt(el)}`).join("\n");
+  } else {
+    // Fallback to legacy elements if no AX data
+    elementsPreview = page.elements
+      .slice(0, 60)
+      .map(e => {
+        const interactionInfo = e.interaction
+          ? `clickable:${e.interaction.clickable} disabled:${e.interaction.disabled}`
+          : '';
+        return `- ${e.id} ${e.tag}${e.role ? `[role=${e.role}]` : ""} selector="${e.selector || ''}" label="${e.label}" rect=${JSON.stringify(e.rect)} interaction={${interactionInfo}}`;
+      })
+      .join("\n");
+  }
 
   // 오버레이 텍스트
   let overlaySection = '';
@@ -182,18 +186,20 @@ function buildActionPrompt({ taskName, reasoningOutput, page }) {
     overlaySection = `\nDetected Overlays:\n${overlayItems}\n`;
   }
 
+  const useEid = observation?.ax?.interactive_elements?.length > 0;
+
   return `
 Task: ${taskName}
 
 Situation Analysis (from reasoning module):
 ${reasoningOutput}
 
-Interactive Elements (top 60, sorted by z-index - modals/popups first):
+Interactive Elements (top 50, AX tree based):
 ${elementsPreview}
 ${overlaySection}
 위 상황 분석을 바탕으로 정확히 하나의 액션을 추천하세요. 아래 형식으로 한국어로 출력:
 
-**대상 요소**: 어떤 요소와 상호작용할지 (item ID 사용, 예: item3)
+**대상 요소**: 어떤 요소와 상호작용할지 (${useEid ? 'eid 사용, 예: e-a3f2b1c0' : 'item ID 사용, 예: item3'})
 
 **액션 유형**: click / type / select / scroll / hover / navigate
 
@@ -208,14 +214,21 @@ ${overlaySection}
 **단계 요약**: 이 단계가 무엇을 달성하는지 한 문장 요약 (예: "쿠팡에서 '도넛' 검색" 또는 "최소주문금액 팝업 닫기")
 
 **실행 명령**: 아래 JSON 형식으로 브라우저가 자동 실행할 수 있는 명령을 출력하세요. 반드시 \`\`\`json 코드블록으로 감싸세요.
-- click: \`{"action":"click","selector":"CSS 선택자"}\`
+${useEid ? `- click: \`{"action":"click","eid":"e-..."}\`
+- type: \`{"action":"type","eid":"e-...","value":"입력할 텍스트"}\`
+- scroll: \`{"action":"scroll","x":0,"y":500}\`
+- navigate: \`{"action":"navigate","url":"https://..."}\`
+- select: \`{"action":"select","eid":"e-...","value":"옵션값"}\`
+- hover: \`{"action":"hover","eid":"e-..."}\`
+
+eid는 반드시 대상 요소의 eid 값을 그대로 사용하세요. 요소 목록에서 [e-abc123]과 같이 표시된 값입니다. 직접 eid를 만들지 마세요.` : `- click: \`{"action":"click","selector":"CSS 선택자"}\`
 - type: \`{"action":"type","selector":"CSS 선택자","value":"입력할 텍스트"}\`
 - scroll: \`{"action":"scroll","x":0,"y":500}\`
 - navigate: \`{"action":"navigate","url":"https://..."}\`
 - select: \`{"action":"select","selector":"CSS 선택자","value":"옵션값"}\`
 - hover: \`{"action":"hover","selector":"CSS 선택자"}\`
 
-selector는 반드시 대상 요소의 selector 필드 값을 그대로 사용하세요. 각 요소에 이미 고유한 CSS 선택자가 제공되어 있습니다. 직접 선택자를 만들지 마세요. 예: 요소 목록에 \`selector="#search-input"\`이 있으면 그대로 \`"selector":"#search-input"\`으로 사용.
+selector는 반드시 대상 요소의 selector 필드 값을 그대로 사용하세요.`}
   `.trim();
 }
 
@@ -246,7 +259,7 @@ function extractStepSummary(actionOutput) {
   return 'Action performed';
 }
 
-// Action 출력에서 실행 명령 JSON 추출
+// Action 출력에서 실행 명령 JSON 추출 (eid + selector 모두 지원)
 function extractActionCommand(actionOutput) {
   // ```json { ... } ``` 패턴 매칭
   const jsonBlockMatch = actionOutput.match(/```json\s*\n?([\s\S]*?)\n?\s*```/);
@@ -254,7 +267,7 @@ function extractActionCommand(actionOutput) {
     try {
       const parsed = JSON.parse(jsonBlockMatch[1].trim());
       if (parsed && parsed.action) {
-        return parsed;
+        return parsed; // may contain eid or selector
       }
     } catch (e) {
       console.warn('[extractActionCommand] JSON parse failed:', e.message);
@@ -333,7 +346,7 @@ router.put('/tasks/:taskId/end', async (req, res) => {
 // POST /api/captures - 캡처 데이터 저장 + AI 호출 (Reasoning → Action 2단계)
 router.post('/captures', async (req, res) => {
   try {
-    const { taskId, url, title, viewport, elements, overlayTexts } = req.body;
+    const { taskId, url, title, viewport, elements, overlayTexts, axData } = req.body;
 
     // Task 확인
     const task = await Task.findById(taskId);
@@ -351,11 +364,28 @@ router.post('/captures', async (req, res) => {
     // 이전 step 정보 (observe에서 검증용)
     const lastStep = memoryStream.length > 0 ? memoryStream[memoryStream.length - 1] : null;
 
+    // stepNumber 계산
+    const stepNumber = task.captureCount + 1;
+
+    // Build observation object
+    const observation = buildObservation({
+      step: stepNumber,
+      page,
+      lastAction: lastStep ? {
+        type: lastStep.summary,
+        params: { eid: lastStep.eid || null },
+        status: lastStep.status
+      } : null,
+      axData: axData || null,
+      errors: []
+    });
+
     // 1. Observe 모듈 호출
     const observePrompt = buildObservePrompt({
       taskName: task.taskName,
       page,
-      lastStep
+      lastStep,
+      observation
     });
 
     const observeOutput = await callOpenAI(observePrompt, 'observe');
@@ -386,7 +416,8 @@ router.post('/captures', async (req, res) => {
     const actionPrompt = buildActionPrompt({
       taskName: task.taskName,
       reasoningOutput,
-      page
+      page,
+      observation
     });
 
     const actionOutput = await callOpenAI(actionPrompt, 'action');
@@ -395,10 +426,10 @@ router.post('/captures', async (req, res) => {
     const stepSummary = extractStepSummary(actionOutput);
     const actionCommand = extractActionCommand(actionOutput);
 
-    // 5. stepNumber 계산
-    const stepNumber = task.captureCount + 1;
+    // Extract eid from action command for memoryStream tracking
+    const actionEid = actionCommand?.eid || null;
 
-    // 6. Capture 저장
+    // 5. Capture 저장
     const capture = new Capture({
       taskId: task._id,
       url,
@@ -412,18 +443,21 @@ router.post('/captures', async (req, res) => {
       reasoningOutput,
       actionPrompt,
       actionOutput,
-      stepNumber
+      stepNumber,
+      observation,
+      axMode: axData?.mode || null
     });
 
     await capture.save();
 
-    // 7. Task 업데이트: captureCount 증가 + memoryStream에 pending 상태로 추가
+    // 6. Task 업데이트: captureCount 증가 + memoryStream에 pending 상태로 추가
     task.captureCount += 1;
     task.memoryStream.push({
       step: stepNumber,
       url,
       summary: stepSummary,
-      status: 'pending'
+      status: 'pending',
+      eid: actionEid
     });
     await task.save();
 

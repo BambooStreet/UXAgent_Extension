@@ -24,6 +24,13 @@ async function injectContentScript(tabId) {
   });
 }
 
+async function injectAXExtract(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["ax-extract.js"]
+  });
+}
+
 function setOut(txt) {
   $("out").textContent = txt;
 }
@@ -117,10 +124,13 @@ $("captureViewport").addEventListener("click", async () => {
 
     setOut("Capturing...");
 
-    // 1. content.js에서 DOM 추출
+    // 1. content.js에서 DOM 추출 + ax-extract.js에서 AX 추출
     const tab = await getActiveTab();
     await injectContentScript(tab.id);
     const extracted = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT" });
+
+    await injectAXExtract(tab.id);
+    const axData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_AX" });
 
     // 2. 백엔드로 전송 (Reasoning → Action 2단계 AI 호출)
     setOut("Reasoning...");
@@ -133,7 +143,8 @@ $("captureViewport").addEventListener("click", async () => {
         title: extracted.title,
         viewport: extracted.viewport,
         elements: extracted.elements,
-        overlayTexts: extracted.overlayTexts || []
+        overlayTexts: extracted.overlayTexts || [],
+        axData
       })
     });
 
@@ -247,10 +258,13 @@ function sleep(ms) {
 
 // 단일 step 실행 (캡처 → AI → 액션) — 결과 반환
 async function runOneStep() {
-  // 1. DOM 추출
+  // 1. DOM 추출 + AX 추출
   const tab = await getActiveTab();
   await injectContentScript(tab.id);
   const extracted = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT" });
+
+  await injectAXExtract(tab.id);
+  const axData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_AX" });
 
   // 2. 서버에 전송
   setOut("Reasoning...");
@@ -263,7 +277,8 @@ async function runOneStep() {
       title: extracted.title,
       viewport: extracted.viewport,
       elements: extracted.elements,
-      overlayTexts: extracted.overlayTexts || []
+      overlayTexts: extracted.overlayTexts || [],
+      axData
     })
   });
 

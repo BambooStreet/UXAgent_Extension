@@ -74,7 +74,9 @@ const captureSchema = new mongoose.Schema({
   stepNumber: {
     type: Number,
     required: true
-  }
+  },
+  observation: mongoose.Schema.Types.Mixed,
+  axMode: String
 }, {
   timestamps: true
 });
