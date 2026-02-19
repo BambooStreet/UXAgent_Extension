@@ -216,14 +216,11 @@ if (!window.__axExtractInstalled) {
     return true;
   }
 
-  // Off-screen 판정: 좌표가 뷰포트에서 극단적으로 벗어난 요소
+  // CSS 숨김 판정: position:absolute; left:-9999px 등의 의도적 숨김 패턴 감지
+  // 스크롤해야 보이는 요소(양수 좌표)는 정상이므로, 큰 음수 좌표만 체크
   function isOffScreen(rect) {
-    const vw = window.innerWidth || document.documentElement.clientWidth;
-    const vh = window.innerHeight || document.documentElement.clientHeight;
-    const margin = 500; // 뷰포트 밖 500px까지는 허용 (스크롤 가능 영역)
-    // 요소의 모든 변이 뷰포트 + margin 바깥이면 off-screen
-    return (rect.right < -margin || rect.left > vw + margin ||
-            rect.bottom < -margin || rect.top > vh + margin);
+    const threshold = -1000;
+    return (rect.right < threshold || rect.bottom < threshold);
   }
 
   // 숨겨진 input(radio/checkbox)의 실제 클릭 가능한 프록시 요소 찾기
