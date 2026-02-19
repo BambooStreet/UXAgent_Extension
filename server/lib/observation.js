@@ -28,30 +28,40 @@ function buildObservation({ step, page, lastAction, axData, errors }) {
 
 /**
  * Select top K elements for prompt inclusion.
- * Strategy: reserve slots for chrome (nav/header) and content separately
- * so navigation links don't crowd out actual page content.
+ * 3-tier strategy: chrome → filter → main content
+ * so nav/filter elements don't crowd out actual page content (e.g. product links).
  */
-// parent_context patterns that indicate site chrome (nav, header, footer)
-const CHROME_PATTERN = /gnb|header|footer|breadcrumb|menu|cart|login|logout|\.fw-float|\.cs-center|side-panel/i;
 
-function isChrome(el) {
-  if (el.parent_context && CHROME_PATTERN.test(el.parent_context)) return true;
-  // Links in the very top of the page (y < 200) are likely header chrome
-  if (el.role === "link" && el.rect && el.rect.y < 200) return true;
-  return false;
+// ── Tier classification ──
+
+const CHROME_PATTERN = /gnb|header|footer|breadcrumb|menu|cart|login|logout|\.fw-float|\.cs-center|side-panel/i;
+const FILTER_PATTERN = /filter|category|sidebar|facet|refine|Sort_sort|price/i;
+
+function classifyElement(el) {
+  const ctx = el.parent_context || "";
+
+  // Tier 1: Chrome — site-wide navigation, header, footer
+  if (CHROME_PATTERN.test(ctx)) return "chrome";
+  if (el.role === "link" && el.rect && el.rect.y < 200) return "chrome";
+
+  // Tier 2: Filter — sidebar filters, category lists, sort controls
+  if (FILTER_PATTERN.test(ctx)) return "filter";
+  // Left-aligned link lists (x < 100) in mid-page are typically sidebar filters
+  if (el.role === "link" && el.rect && el.rect.x < 100 && el.rect.y > 300) return "filter";
+  // Sort/filter radio buttons and checkboxes
+  if (["radio", "checkbox"].includes(el.role) && ctx) return "filter";
+
+  // Tier 3: Main content — product links, primary actions, forms
+  return "main";
 }
 
 function scoreElement(el, idx) {
   let score = 0;
-  // Penalize disabled
   if (el.states?.disabled) score -= 10;
-  // Boost elements with accessible names
   if (el.name) score += 3;
-  // Boost form controls
-  if (["textbox", "searchbox", "combobox", "checkbox", "radio"].includes(el.role)) score += 2;
-  // Boost buttons
+  if (["textbox", "searchbox", "combobox"].includes(el.role)) score += 2;
   if (el.role === "button") score += 1;
-  // Preserve document order bias (earlier = slightly higher)
+  // Document order bias
   score -= idx * 0.01;
   return score;
 }
@@ -59,29 +69,30 @@ function scoreElement(el, idx) {
 function pruneForPrompt(elements, topK = 50) {
   if (!elements || elements.length <= topK) return elements || [];
 
-  // Split into chrome (nav/header) vs content elements
-  const chrome = [];
-  const content = [];
+  const buckets = { chrome: [], filter: [], main: [] };
 
   elements.forEach((el, idx) => {
     const score = scoreElement(el, idx);
-    if (isChrome(el)) {
-      chrome.push({ el, score });
-    } else {
-      content.push({ el, score });
-    }
+    const tier = classifyElement(el);
+    buckets[tier].push({ el, score });
   });
 
-  chrome.sort((a, b) => b.score - a.score);
-  content.sort((a, b) => b.score - a.score);
+  // Sort each bucket by score
+  for (const key of Object.keys(buckets)) {
+    buckets[key].sort((a, b) => b.score - a.score);
+  }
 
-  // Allocate: max 10 chrome slots, rest for content
-  const chromeSlots = Math.min(10, chrome.length);
-  const contentSlots = topK - chromeSlots;
+  // Slot allocation: main gets priority, chrome/filter get capped
+  const chromeMax = 8;
+  const filterMax = 7;
+  const chromeSlots = Math.min(chromeMax, buckets.chrome.length);
+  const filterSlots = Math.min(filterMax, buckets.filter.length);
+  const mainSlots = topK - chromeSlots - filterSlots;
 
   const result = [
-    ...content.slice(0, contentSlots).map(s => s.el),
-    ...chrome.slice(0, chromeSlots).map(s => s.el)
+    ...buckets.main.slice(0, mainSlots).map(s => s.el),
+    ...buckets.filter.slice(0, filterSlots).map(s => s.el),
+    ...buckets.chrome.slice(0, chromeSlots).map(s => s.el)
   ];
 
   return result;
