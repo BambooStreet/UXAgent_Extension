@@ -207,6 +207,34 @@ if (!window.__axExtractInstalled) {
     return "";
   }
 
+  // ── Nearest Landmark (for tier classification) ──
+  // Walks up the DOM to find the closest HTML5/ARIA landmark ancestor.
+  // Returns: "banner"|"contentinfo"|"navigation"|"complementary"|"main"|"search"|""
+  const LANDMARK_ROLES = new Set(["banner", "contentinfo", "navigation", "complementary", "main", "search"]);
+
+  function getNearestLandmark(el) {
+    let cur = el.parentElement;
+    while (cur) {
+      const tag = cur.tagName.toLowerCase();
+      if (tag === "body" || tag === "html") break;
+
+      // Explicit ARIA role (highest priority)
+      const role = (cur.getAttribute("role") || "").toLowerCase();
+      if (LANDMARK_ROLES.has(role)) return role;
+
+      // Implicit landmarks from HTML5 semantic tags
+      if (tag === "nav") return "navigation";
+      if (tag === "aside") return "complementary";
+      if (tag === "main") return "main";
+      // header/footer are page-level landmarks only when direct child of body
+      if (tag === "header" && cur.parentElement === document.body) return "banner";
+      if (tag === "footer" && cur.parentElement === document.body) return "contentinfo";
+
+      cur = cur.parentElement;
+    }
+    return "";
+  }
+
   // ── Visibility check ──
   function axIsVisible(el) {
     const rect = el.getBoundingClientRect();
@@ -377,7 +405,8 @@ if (!window.__axExtractInstalled) {
           w: Math.round(targetRect.width),
           h: Math.round(targetRect.height)
         },
-        parent_context: getParentContext(targetEl)
+        parent_context: getParentContext(targetEl),
+        landmark: getNearestLandmark(targetEl)
       });
     }
 

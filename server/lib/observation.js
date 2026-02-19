@@ -29,29 +29,21 @@ function buildObservation({ step, page, lastAction, axData, errors }) {
 /**
  * Select top K elements for prompt inclusion.
  * 3-tier strategy: chrome → filter → main content
- * so nav/filter elements don't crowd out actual page content (e.g. product links).
+ * Classification uses HTML5/ARIA landmarks — no site-specific patterns or coordinates.
  */
 
-// ── Tier classification ──
-
-const CHROME_PATTERN = /gnb|header|footer|breadcrumb|menu|cart|login|logout|\.fw-float|\.cs-center|side-panel/i;
-const FILTER_PATTERN = /filter|category|sidebar|facet|refine|price/i;
+// ── Tier classification (landmark-based) ──
 
 function classifyElement(el) {
-  const ctx = el.parent_context || "";
+  const lm = el.landmark || "";
 
-  // Tier 1: Chrome — site-wide navigation, header, footer
-  if (CHROME_PATTERN.test(ctx)) return "chrome";
-  if (el.role === "link" && el.rect && el.rect.y < 200) return "chrome";
+  // Chrome: page-level navigation, banner (header), contentinfo (footer)
+  if (lm === "navigation" || lm === "banner" || lm === "contentinfo") return "chrome";
 
-  // Tier 2: Filter — sidebar filters, category lists, sort controls
-  if (FILTER_PATTERN.test(ctx)) return "filter";
-  // Left-aligned link lists (x < 100) in mid-page are typically sidebar filters
-  if (el.role === "link" && el.rect && el.rect.x < 100 && el.rect.y > 300) return "filter";
-  // Radio/checkbox inside filter-area containers only
-  if (["radio", "checkbox"].includes(el.role) && FILTER_PATTERN.test(ctx)) return "filter";
+  // Filter: complementary content (aside/sidebar)
+  if (lm === "complementary") return "filter";
 
-  // Tier 3: Main content — product links, primary actions, forms
+  // Main: main content, search regions, or elements without landmark
   return "main";
 }
 
@@ -123,6 +115,9 @@ function formatElementForPrompt(el) {
 
   // Position
   if (el.rect) parts.push(`(${el.rect.x},${el.rect.y})`);
+
+  // Landmark region
+  if (el.landmark) parts.push(`@${el.landmark}`);
 
   // Parent context
   if (el.parent_context) parts.push(`in:${el.parent_context}`);
