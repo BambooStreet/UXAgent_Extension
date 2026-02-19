@@ -26,7 +26,13 @@ const taskSchema = new mongoose.Schema({
   memoryStream: [{
     step: Number,
     url: String,
-    summary: String
+    summary: String,
+    status: {
+      type: String,
+      enum: ['pending', 'success', 'failed'],
+      default: 'pending'
+    },
+    error: String
   }]
 }, {
   timestamps: true

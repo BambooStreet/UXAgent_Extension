@@ -78,9 +78,11 @@ function buildReasoningPrompt({ taskName, page, memoryStream }) {
   let memorySection = '';
   if (memoryStream && memoryStream.length > 0) {
     const recent = memoryStream.slice(-10);
-    const memoryItems = recent.map(m =>
-      `  Step ${m.step} (${m.url}): ${m.summary}`
-    ).join('\n');
+    const memoryItems = recent.map(m => {
+      const statusTag = m.status === 'success' ? '✓' : m.status === 'failed' ? '✗ FAILED' : '⏳ PENDING';
+      const errorInfo = m.status === 'failed' && m.error ? ` (error: ${m.error})` : '';
+      return `  Step ${m.step} [${statusTag}] (${m.url}): ${m.summary}${errorInfo}`;
+    }).join('\n');
     memorySection = `\n\nPrevious Steps (Memory Stream):\n${memoryItems}`;
   } else {
     memorySection = '\n\nPrevious Steps: This is the first capture.';
@@ -103,7 +105,7 @@ ${memorySection}
 
 **팝업 분석**: 페이지를 가리는 팝업, 모달, 오버레이가 있는지? 있다면 내용과 목적을 설명. 없으면 "팝업 없음"
 
-**진행도 평가**: 메모리 스트림을 바탕으로 태스크 완료까지 얼마나 진행되었는지, 무엇을 했고 무엇이 남았는지
+**진행도 평가**: 메모리 스트림을 바탕으로 태스크 완료까지 얼마나 진행되었는지 평가. 각 단계의 실행 상태(✓ 성공, ✗ 실패, ⏳ 미실행)를 반드시 확인하고, 실패하거나 미실행된 단계가 있으면 해당 작업을 다시 수행해야 한다고 판단
 
 **전략**: 태스크 목표를 향해 다음에 무엇을 해야 하는지. 팝업이 있다면 닫아야 하는지 상호작용해야 하는지
 
@@ -343,12 +345,13 @@ router.post('/captures', async (req, res) => {
 
     await capture.save();
 
-    // 6. Task 업데이트: captureCount 증가 + memoryStream에 step summary 추가
+    // 6. Task 업데이트: captureCount 증가 + memoryStream에 pending 상태로 추가
     task.captureCount += 1;
     task.memoryStream.push({
       step: stepNumber,
       url,
-      summary: stepSummary
+      summary: stepSummary,
+      status: 'pending'
     });
     await task.save();
 
@@ -367,6 +370,39 @@ router.post('/captures', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating capture:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/captures/:captureId/verify - 액션 실행 결과 검증
+router.put('/captures/:captureId/verify', async (req, res) => {
+  try {
+    const { captureId } = req.params;
+    const { success, error } = req.body;
+
+    const capture = await Capture.findById(captureId);
+    if (!capture) {
+      return res.status(404).json({ error: 'Capture not found' });
+    }
+
+    // Task의 memoryStream에서 해당 step 업데이트
+    const task = await Task.findById(capture.taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const memEntry = task.memoryStream.find(m => m.step === capture.stepNumber);
+    if (memEntry) {
+      memEntry.status = success ? 'success' : 'failed';
+      if (!success && error) {
+        memEntry.error = String(error).slice(0, 200);
+      }
+      await task.save();
+    }
+
+    res.json({ verified: true, step: capture.stepNumber, status: memEntry?.status });
+  } catch (error) {
+    console.error('Error verifying capture:', error);
     res.status(500).json({ error: error.message });
   }
 });

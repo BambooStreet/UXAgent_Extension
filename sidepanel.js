@@ -8,6 +8,7 @@ const SERVER_URL = "http://localhost:3000";
 // 전역 상태 관리
 let currentTask = null; // { taskId, taskName, captureCount }
 let pendingCommand = null; // actionCommand JSON from server
+let lastCaptureId = null; // 마지막 캡처 ID (verify용)
 let autoRunning = false; // auto-run loop flag
 
 async function getActiveTab() {
@@ -145,6 +146,7 @@ $("captureViewport").addEventListener("click", async () => {
     currentTask.captureCount++;
     $("captureCount").textContent = currentTask.captureCount;
     setOut(`Step ${currentTask.captureCount} complete.`);
+    lastCaptureId = data.captureId;
     updateFlowUI(data);
     setPendingCommand(data.actionCommand);
   } catch (e) {
@@ -178,6 +180,19 @@ $("endTask").addEventListener("click", async () => {
   }
 });
 
+// 서버에 액션 실행 결과 보고
+async function verifyAction(captureId, success, error) {
+  try {
+    await fetch(`${SERVER_URL}/api/captures/${captureId}/verify`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ success, error })
+    });
+  } catch (e) {
+    console.warn("[verify] failed:", e);
+  }
+}
+
 // 액션 실행 버튼 (수동)
 $("executeAction").addEventListener("click", async () => {
   if (!pendingCommand) return;
@@ -196,13 +211,17 @@ $("executeAction").addEventListener("click", async () => {
     if (response?.success) {
       showExecResult(true, response.log || "액션이 성공적으로 실행되었습니다.");
       setOut("액션 실행 완료.");
+      await verifyAction(lastCaptureId, true);
     } else {
-      showExecResult(false, response?.error || "알 수 없는 오류");
+      const errMsg = response?.error || "알 수 없는 오류";
+      showExecResult(false, errMsg);
       setOut("액션 실행 실패.");
+      await verifyAction(lastCaptureId, false, errMsg);
     }
   } catch (e) {
     showExecResult(false, e?.message || String(e));
     setOut(`Error: ${e?.message || e}`);
+    await verifyAction(lastCaptureId, false, e?.message);
   } finally {
     btn.textContent = "액션 실행";
     btn.disabled = !pendingCommand;
@@ -256,14 +275,15 @@ async function runOneStep() {
   // 3. UI 업데이트
   currentTask.captureCount++;
   $("captureCount").textContent = currentTask.captureCount;
+  lastCaptureId = data.captureId;
   updateFlowUI(data);
   setPendingCommand(data.actionCommand);
 
   return data;
 }
 
-// 액션 실행 (자동) — 성공 여부 반환
-async function executeActionAuto(command) {
+// 액션 실행 (자동) — 성공 여부 반환 + verify 호출
+async function executeActionAuto(command, captureId) {
   const response = await chrome.runtime.sendMessage({
     type: "EXECUTE_ACTION",
     command
@@ -271,9 +291,12 @@ async function executeActionAuto(command) {
 
   if (response?.success) {
     showExecResult(true, response.log || "실행 완료");
+    await verifyAction(captureId, true);
     return true;
   } else {
-    showExecResult(false, response?.error || "실행 실패");
+    const errMsg = response?.error || "실행 실패";
+    showExecResult(false, errMsg);
+    await verifyAction(captureId, false, errMsg);
     return false;
   }
 }
@@ -311,7 +334,7 @@ async function autoRunLoop() {
       // 3. 액션 실행
       if (data.actionCommand) {
         setOut(`Auto Run — Step ${step}/${maxSteps}: 액션 실행 중...`);
-        const success = await executeActionAuto(data.actionCommand);
+        const success = await executeActionAuto(data.actionCommand, data.captureId);
         if (!success) {
           setOut(`Auto Run 중단 — 액션 실행 실패 (Step ${step})`);
           break;
