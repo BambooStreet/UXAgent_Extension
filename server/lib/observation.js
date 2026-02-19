@@ -35,7 +35,7 @@ function buildObservation({ step, page, lastAction, axData, errors }) {
 // ── Tier classification ──
 
 const CHROME_PATTERN = /gnb|header|footer|breadcrumb|menu|cart|login|logout|\.fw-float|\.cs-center|side-panel/i;
-const FILTER_PATTERN = /filter|category|sidebar|facet|refine|Sort_sort|price/i;
+const FILTER_PATTERN = /filter|category|sidebar|facet|refine|price/i;
 
 function classifyElement(el) {
   const ctx = el.parent_context || "";
@@ -48,8 +48,8 @@ function classifyElement(el) {
   if (FILTER_PATTERN.test(ctx)) return "filter";
   // Left-aligned link lists (x < 100) in mid-page are typically sidebar filters
   if (el.role === "link" && el.rect && el.rect.x < 100 && el.rect.y > 300) return "filter";
-  // Sort/filter radio buttons and checkboxes
-  if (["radio", "checkbox"].includes(el.role) && ctx) return "filter";
+  // Radio/checkbox inside filter-area containers only
+  if (["radio", "checkbox"].includes(el.role) && FILTER_PATTERN.test(ctx)) return "filter";
 
   // Tier 3: Main content — product links, primary actions, forms
   return "main";
