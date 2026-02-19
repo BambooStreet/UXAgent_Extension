@@ -11,6 +11,10 @@ let pendingCommand = null; // actionCommand JSON from server
 let lastCaptureId = null; // 마지막 캡처 ID (verify용)
 let autoRunning = false; // auto-run loop flag
 
+// ─── Flow History ───
+let flowHistory = []; // [{step, observePrompt, observeOutput, reasoningPrompt, reasoningOutput, actionPrompt, actionOutput}]
+let flowViewIndex = -1; // 현재 보고 있는 step index (-1 = none)
+
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("활성 탭을 찾지 못했습니다.");
@@ -68,12 +72,45 @@ function setFlowText(id, txt) {
 }
 
 function updateFlowUI(data) {
-  setFlowText("observeInput", data.observePrompt);
-  setFlowText("observeOut", data.observeOutput);
-  setFlowText("reasoningInput", data.reasoningPrompt);
-  setFlowText("reasoningOut", data.reasoningOutput);
-  setFlowText("actionInput", data.actionPrompt);
-  setFlowText("actionOut", data.actionOutput);
+  // 히스토리에 저장
+  const stepNum = flowHistory.length + 1;
+  flowHistory.push({
+    step: stepNum,
+    observePrompt: data.observePrompt,
+    observeOutput: data.observeOutput,
+    reasoningPrompt: data.reasoningPrompt,
+    reasoningOutput: data.reasoningOutput,
+    actionPrompt: data.actionPrompt,
+    actionOutput: data.actionOutput
+  });
+
+  // 최신 step 표시
+  flowViewIndex = flowHistory.length - 1;
+  renderFlowAt(flowViewIndex);
+  updateFlowNav();
+}
+
+function renderFlowAt(index) {
+  const entry = flowHistory[index];
+  if (!entry) return;
+  setFlowText("observeInput", entry.observePrompt);
+  setFlowText("observeOut", entry.observeOutput);
+  setFlowText("reasoningInput", entry.reasoningPrompt);
+  setFlowText("reasoningOut", entry.reasoningOutput);
+  setFlowText("actionInput", entry.actionPrompt);
+  setFlowText("actionOut", entry.actionOutput);
+}
+
+function updateFlowNav() {
+  const nav = $("flowNav");
+  if (flowHistory.length === 0) {
+    nav.style.display = "none";
+    return;
+  }
+  nav.style.display = "flex";
+  $("flowStepLabel").textContent = `Step ${flowViewIndex + 1} / ${flowHistory.length}`;
+  $("flowPrev").disabled = flowViewIndex <= 0;
+  $("flowNext").disabled = flowViewIndex >= flowHistory.length - 1;
 }
 
 // Task 시작 플로우
@@ -102,6 +139,9 @@ $("startTask").addEventListener("click", async () => {
     const data = await resp.json();
 
     currentTask = { taskId: data.taskId, taskName, captureCount: 0 };
+    flowHistory = [];
+    flowViewIndex = -1;
+    updateFlowNav();
 
     // UI 상태 변경
     $("taskSection").style.display = "none";
@@ -188,6 +228,7 @@ $("endTask").addEventListener("click", async () => {
     $("taskName").value = "";
     setOut(`Task 종료됨. 총 ${captureCount}개 캡처.`);
     setPendingCommand(null);
+    // 히스토리는 유지 (종료 후에도 이전 flow 탐색 가능)
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
   }
@@ -382,4 +423,20 @@ $("autoRun").addEventListener("click", () => autoRunLoop());
 $("stopRun").addEventListener("click", () => {
   autoRunning = false;
   setOut("Auto Run 중지 요청됨...");
+});
+
+// ─── Flow History Navigation ───
+$("flowPrev").addEventListener("click", () => {
+  if (flowViewIndex > 0) {
+    flowViewIndex--;
+    renderFlowAt(flowViewIndex);
+    updateFlowNav();
+  }
+});
+$("flowNext").addEventListener("click", () => {
+  if (flowViewIndex < flowHistory.length - 1) {
+    flowViewIndex++;
+    renderFlowAt(flowViewIndex);
+    updateFlowNav();
+  }
 });
