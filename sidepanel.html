@@ -17,6 +17,13 @@
       button.execute { background: #ff9800; color: white; border: none; border-radius: 4px; }
       button.execute:hover:not(:disabled) { background: #e68900; }
       button.execute:disabled { background: #ccc; color: #888; cursor: not-allowed; }
+      button.stop { background: #d93025; color: white; border: none; border-radius: 4px; display: none; }
+      button.stop:hover { background: #b3221b; }
+      .auto-run-row { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+      .auto-run-row button { flex: 1; margin-top: 0; }
+      .auto-run-row input { width: 60px; flex: 0 0 60px; text-align: center; padding: 8px 4px; }
+      .auto-run-row label { flex: 0 0 auto; font-size: 11px; margin: 0; white-space: nowrap; }
+      .step-counter { font-size: 11px; color: #666; margin-top: 4px; display: none; }
       .exec-result { font-size: 11px; padding: 6px 8px; border-radius: 4px; margin-top: 6px; display: none; }
       .exec-result.success { display: block; background: #e8f5e9; color: #2e7d32; }
       .exec-result.error { display: block; background: #fbe9e7; color: #c62828; }
@@ -45,7 +52,15 @@
           <small>캡처 횟수: <span id="captureCount">0</span></small>
         </div>
 
-        <button id="captureViewport" class="primary">현재 viewport 탐색</button>
+        <div class="auto-run-row">
+          <button id="autoRun" class="primary">Auto Run</button>
+          <button id="stopRun" class="stop">Stop</button>
+          <label>Max</label>
+          <input id="maxSteps" type="number" value="20" min="1" max="100" />
+        </div>
+        <div id="stepCounter" class="step-counter">Step <span id="currentStep">0</span> / <span id="maxStepDisplay">20</span></div>
+
+        <button id="captureViewport" class="primary" style="font-size:12px; padding:6px;">수동 캡처</button>
         <button id="endTask" class="danger">Task 종료</button>
       </div>
 

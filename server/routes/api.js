@@ -108,6 +108,8 @@ ${memorySection}
 **전략**: 태스크 목표를 향해 다음에 무엇을 해야 하는지. 팝업이 있다면 닫아야 하는지 상호작용해야 하는지
 
 **주의사항**: 주의해야 할 점 (예: 최소주문금액, 로그인 필요, 품절 등)
+
+**완료 여부**: 태스크가 완료되었으면 DONE, 아직 진행해야 하면 CONTINUE
   `.trim();
 }
 
@@ -169,6 +171,16 @@ ${overlaySection}
 
 selector는 반드시 대상 요소의 selector 필드 값을 그대로 사용하세요. 각 요소에 이미 고유한 CSS 선택자가 제공되어 있습니다. 직접 선택자를 만들지 마세요. 예: 요소 목록에 \`selector="#search-input"\`이 있으면 그대로 \`"selector":"#search-input"\`으로 사용.
   `.trim();
+}
+
+// Reasoning 출력에서 DONE 신호 추출
+function extractDoneSignal(reasoningOutput) {
+  const match = reasoningOutput.match(/\*\*완료 여부\*\*:\s*(DONE|CONTINUE)/i);
+  if (match) {
+    return match[1].toUpperCase() === 'DONE';
+  }
+  // fallback: 출력 어디서든 DONE이 단독으로 나오면 완료로 판단
+  return /\bDONE\b/.test(reasoningOutput) && !/\bCONTINUE\b/.test(reasoningOutput);
 }
 
 // Action 출력에서 Step Summary 추출
@@ -340,12 +352,16 @@ router.post('/captures', async (req, res) => {
     });
     await task.save();
 
-    // 7. 응답
+    // 7. 태스크 완료 여부 판단
+    const done = extractDoneSignal(reasoningOutput);
+
+    // 8. 응답
     res.json({
       captureId: capture._id.toString(),
       reasoningOutput,
       actionOutput,
       actionCommand,
+      done,
       debugPrompt: `=== REASONING PROMPT ===\n${reasoningPrompt}\n\n=== ACTION PROMPT ===\n${actionPrompt}`
     });
   } catch (error) {
