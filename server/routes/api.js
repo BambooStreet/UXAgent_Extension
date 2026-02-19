@@ -121,7 +121,7 @@ function buildActionPrompt({ taskName, reasoningOutput, page }) {
       const interactionInfo = e.interaction
         ? `clickable:${e.interaction.clickable} disabled:${e.interaction.disabled}`
         : '';
-      return `- ${e.id} ${e.tag}${e.role ? `[role=${e.role}]` : ""} label="${e.label}" rect=${JSON.stringify(e.rect)} style={${styleInfo}} interaction={${interactionInfo}}`;
+      return `- ${e.id} ${e.tag}${e.role ? `[role=${e.role}]` : ""} selector="${e.selector || ''}" label="${e.label}" rect=${JSON.stringify(e.rect)} style={${styleInfo}} interaction={${interactionInfo}}`;
     })
     .join("\n");
 
@@ -147,7 +147,7 @@ ${overlaySection}
 
 **대상 요소**: 어떤 요소와 상호작용할지 (item ID 사용, 예: item3)
 
-**액션 유형**: click / type / select / scroll / navigate-back
+**액션 유형**: click / type / select / scroll / hover / navigate
 
 **액션 상세**: 구체적인 지시 (예: "'장바구니 담기' 버튼을 클릭" 또는 "검색창에 '도넛' 입력")
 
@@ -158,6 +158,16 @@ ${overlaySection}
 **다음 캡처 타이밍**: 다음 캡처를 언제 해야 하는지 (예: "검색 결과가 로드된 후" 또는 "팝업이 닫힌 후")
 
 **단계 요약**: 이 단계가 무엇을 달성하는지 한 문장 요약 (예: "쿠팡에서 '도넛' 검색" 또는 "최소주문금액 팝업 닫기")
+
+**실행 명령**: 아래 JSON 형식으로 브라우저가 자동 실행할 수 있는 명령을 출력하세요. 반드시 \`\`\`json 코드블록으로 감싸세요.
+- click: \`{"action":"click","selector":"CSS 선택자"}\`
+- type: \`{"action":"type","selector":"CSS 선택자","value":"입력할 텍스트"}\`
+- scroll: \`{"action":"scroll","x":0,"y":500}\`
+- navigate: \`{"action":"navigate","url":"https://..."}\`
+- select: \`{"action":"select","selector":"CSS 선택자","value":"옵션값"}\`
+- hover: \`{"action":"hover","selector":"CSS 선택자"}\`
+
+selector는 반드시 대상 요소의 selector 필드 값을 그대로 사용하세요. 각 요소에 이미 고유한 CSS 선택자가 제공되어 있습니다. 직접 선택자를 만들지 마세요. 예: 요소 목록에 \`selector="#search-input"\`이 있으면 그대로 \`"selector":"#search-input"\`으로 사용.
   `.trim();
 }
 
@@ -176,6 +186,37 @@ function extractStepSummary(actionOutput) {
   }
 
   return 'Action performed';
+}
+
+// Action 출력에서 실행 명령 JSON 추출
+function extractActionCommand(actionOutput) {
+  // ```json { ... } ``` 패턴 매칭
+  const jsonBlockMatch = actionOutput.match(/```json\s*\n?([\s\S]*?)\n?\s*```/);
+  if (jsonBlockMatch) {
+    try {
+      const parsed = JSON.parse(jsonBlockMatch[1].trim());
+      if (parsed && parsed.action) {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('[extractActionCommand] JSON parse failed:', e.message);
+    }
+  }
+
+  // fallback: 인라인 JSON 객체 매칭 {"action": ...}
+  const inlineMatch = actionOutput.match(/\{[^{}]*"action"\s*:\s*"[^"]+?"[^{}]*\}/);
+  if (inlineMatch) {
+    try {
+      const parsed = JSON.parse(inlineMatch[0]);
+      if (parsed && parsed.action) {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('[extractActionCommand] inline JSON parse failed:', e.message);
+    }
+  }
+
+  return null;
 }
 
 // POST /api/tasks - Task 시작
@@ -266,8 +307,9 @@ router.post('/captures', async (req, res) => {
 
     const actionOutput = await callOpenAI(actionPrompt, 'action');
 
-    // 3. Step Summary 추출
+    // 3. Step Summary + Action Command 추출
     const stepSummary = extractStepSummary(actionOutput);
+    const actionCommand = extractActionCommand(actionOutput);
 
     // 4. stepNumber 계산
     const stepNumber = task.captureCount + 1;
@@ -303,6 +345,7 @@ router.post('/captures', async (req, res) => {
       captureId: capture._id.toString(),
       reasoningOutput,
       actionOutput,
+      actionCommand,
       debugPrompt: `=== REASONING PROMPT ===\n${reasoningPrompt}\n\n=== ACTION PROMPT ===\n${actionPrompt}`
     });
   } catch (error) {

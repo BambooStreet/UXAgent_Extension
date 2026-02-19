@@ -14,6 +14,12 @@
       button.primary:hover { background: #1557b0; }
       button.danger { background: #d93025; color: white; border: none; border-radius: 4px; }
       button.danger:hover { background: #b3221b; }
+      button.execute { background: #ff9800; color: white; border: none; border-radius: 4px; }
+      button.execute:hover:not(:disabled) { background: #e68900; }
+      button.execute:disabled { background: #ccc; color: #888; cursor: not-allowed; }
+      .exec-result { font-size: 11px; padding: 6px 8px; border-radius: 4px; margin-top: 6px; display: none; }
+      .exec-result.success { display: block; background: #e8f5e9; color: #2e7d32; }
+      .exec-result.error { display: block; background: #fbe9e7; color: #c62828; }
       pre { white-space: pre-wrap; background:#f6f6f6; padding:8px; border-radius:6px; font-size:12px; }
       .task-info { background: #e8f0fe; padding: 10px; border-radius: 6px; margin-top: 10px; font-size: 12px; }
       .task-info strong { display: block; margin-bottom: 4px; }
@@ -56,6 +62,8 @@
       <!-- Action 출력 (녹색 강조) -->
       <label>추천 액션</label>
       <pre id="actionOut" style="background:#e8f5e9; border-left:3px solid #4caf50;">Ready.</pre>
+      <button id="executeAction" class="execute" disabled>액션 실행</button>
+      <div id="execResult" class="exec-result"></div>
 
       <!-- 디버그 프롬프트 -->
       <details>

@@ -7,6 +7,7 @@ const SERVER_URL = "http://localhost:3000";
 
 // 전역 상태 관리
 let currentTask = null; // { taskId, taskName, captureCount }
+let pendingCommand = null; // actionCommand JSON from server
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -31,6 +32,22 @@ function setReasoningOut(txt) {
 
 function setActionOut(txt) {
   $("actionOut").textContent = txt;
+}
+
+function setPendingCommand(cmd) {
+  pendingCommand = cmd || null;
+  const btn = $("executeAction");
+  btn.disabled = !pendingCommand;
+  // Clear previous result
+  const result = $("execResult");
+  result.className = "exec-result";
+  result.textContent = "";
+}
+
+function showExecResult(success, message) {
+  const el = $("execResult");
+  el.className = "exec-result " + (success ? "success" : "error");
+  el.textContent = success ? `✓ ${message || "실행 완료"}` : `✗ ${message || "실행 실패"}`;
 }
 
 function setDebugPrompt(txt) {
@@ -127,10 +144,12 @@ $("captureViewport").addEventListener("click", async () => {
     setReasoningOut(data.reasoningOutput);
     setActionOut(data.actionOutput);
     setDebugPrompt(data.debugPrompt);
+    setPendingCommand(data.actionCommand);
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
     setReasoningOut("Error occurred.");
     setActionOut("Error occurred.");
+    setPendingCommand(null);
   }
 });
 
@@ -156,7 +175,39 @@ $("endTask").addEventListener("click", async () => {
     setReasoningOut("Ready.");
     setActionOut("Ready.");
     setDebugPrompt("(empty)");
+    setPendingCommand(null);
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
+  }
+});
+
+// 액션 실행 버튼
+$("executeAction").addEventListener("click", async () => {
+  if (!pendingCommand) return;
+
+  const btn = $("executeAction");
+  btn.disabled = true;
+  btn.textContent = "실행 중...";
+  setOut("액션 실행 중...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "EXECUTE_ACTION",
+      command: pendingCommand
+    });
+
+    if (response?.success) {
+      showExecResult(true, response.log || "액션이 성공적으로 실행되었습니다.");
+      setOut("액션 실행 완료.");
+    } else {
+      showExecResult(false, response?.error || "알 수 없는 오류");
+      setOut("액션 실행 실패.");
+    }
+  } catch (e) {
+    showExecResult(false, e?.message || String(e));
+    setOut(`Error: ${e?.message || e}`);
+  } finally {
+    btn.textContent = "액션 실행";
+    btn.disabled = !pendingCommand;
   }
 });

@@ -31,26 +31,144 @@ function labelOf(el) {
 }
 
 function uniqueSelector(el) {
-  if (el.id && document.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) {
-    return `#${CSS.escape(el.id)}`;
+  // 후보 선택자를 만들어 실제로 유일하게 매칭되는지 검증
+  function isUnique(sel) {
+    try {
+      return document.querySelectorAll(sel).length === 1;
+    } catch { return false; }
   }
-  const attrs = ["data-testid", "data-test", "data-qa", "data-cy"];
-  for (const a of attrs) {
+
+  // 1. id
+  if (el.id) {
+    const sel = `#${CSS.escape(el.id)}`;
+    if (isUnique(sel)) return sel;
+  }
+
+  // 2. data 속성
+  const dataAttrs = ["data-testid", "data-test", "data-qa", "data-cy", "data-id", "data-item-id"];
+  for (const a of dataAttrs) {
     const v = el.getAttribute(a);
     if (v) {
-      const sel = `[${a}="${v}"]`;
-      if (document.querySelectorAll(sel).length === 1) return sel;
+      const sel = `[${a}="${CSS.escape(v)}"]`;
+      if (isUnique(sel)) return sel;
     }
   }
-  // 짧은 경로(최대 4단)
-  let cur = el, parts = [];
-  for (let i = 0; i < 4 && cur && cur.nodeType === 1; i++) {
+
+  const tag = el.tagName.toLowerCase();
+
+  // 3. name 속성 (input, select, textarea)
+  const name = el.getAttribute("name");
+  if (name) {
+    const sel = `${tag}[name="${CSS.escape(name)}"]`;
+    if (isUnique(sel)) return sel;
+  }
+
+  // 4. aria-label
+  const ariaLabel = el.getAttribute("aria-label");
+  if (ariaLabel) {
+    const sel = `${tag}[aria-label="${CSS.escape(ariaLabel)}"]`;
+    if (isUnique(sel)) return sel;
+  }
+
+  // 5. role + aria-label 조합
+  const role = el.getAttribute("role");
+  if (role && ariaLabel) {
+    const sel = `[role="${role}"][aria-label="${CSS.escape(ariaLabel)}"]`;
+    if (isUnique(sel)) return sel;
+  }
+
+  // 6. href (a 태그) — 경로만 사용, 쿼리 포함
+  if (tag === "a") {
+    const href = el.getAttribute("href");
+    if (href && href.length < 200) {
+      const sel = `a[href="${CSS.escape(href)}"]`;
+      if (isUnique(sel)) return sel;
+    }
+  }
+
+  // 7. type + placeholder (input)
+  if (tag === "input") {
+    const type = el.getAttribute("type") || "text";
+    const placeholder = el.getAttribute("placeholder");
+    if (placeholder) {
+      const sel = `input[type="${type}"][placeholder="${CSS.escape(placeholder)}"]`;
+      if (isUnique(sel)) return sel;
+    }
+  }
+
+  // 8. 고유 클래스 조합 — 짧은 클래스명만 사용
+  if (el.classList.length > 0) {
+    const classes = Array.from(el.classList)
+      .filter(c => c.length > 1 && c.length < 50 && !/^[0-9]/.test(c));
+    // 클래스 1~2개 조합으로 유일한 선택자 시도
+    for (const c of classes) {
+      const sel = `${tag}.${CSS.escape(c)}`;
+      if (isUnique(sel)) return sel;
+    }
+    if (classes.length >= 2) {
+      const sel = `${tag}.${CSS.escape(classes[0])}.${CSS.escape(classes[1])}`;
+      if (isUnique(sel)) return sel;
+    }
+  }
+
+  // 9. 부모 id + 자식 경로 (부모 중 id 있는 요소 탐색)
+  let ancestor = el.parentElement;
+  for (let depth = 1; depth <= 5 && ancestor; depth++) {
+    if (ancestor.id) {
+      const parentSel = `#${CSS.escape(ancestor.id)}`;
+      // 부모 아래에서 같은 태그의 몇 번째인지
+      const sibs = ancestor.querySelectorAll(`:scope ${tag}`);
+      const idx = Array.from(sibs).indexOf(el);
+      if (idx !== -1) {
+        const sel = `${parentSel} ${tag}:nth-of-type(${idx + 1})`;
+        if (isUnique(sel)) return sel;
+      }
+      // 부모 아래 직접 자손 경로
+      const path = buildPathFromAncestor(el, ancestor);
+      if (path && isUnique(`${parentSel} ${path}`)) {
+        return `${parentSel} ${path}`;
+      }
+      break;
+    }
+    ancestor = ancestor.parentElement;
+  }
+
+  // 10. 최종 fallback: body부터의 전체 경로 (최대 8단계)
+  return buildFullPath(el);
+}
+
+function buildPathFromAncestor(el, ancestor) {
+  const parts = [];
+  let cur = el;
+  while (cur && cur !== ancestor && parts.length < 6) {
     const tag = cur.tagName.toLowerCase();
     const p = cur.parentElement;
     if (!p) break;
     const sibs = Array.from(p.children).filter(x => x.tagName === cur.tagName);
-    const idx = sibs.indexOf(cur) + 1;
-    parts.unshift(`${tag}:nth-of-type(${idx})`);
+    if (sibs.length > 1) {
+      parts.unshift(`${tag}:nth-of-type(${sibs.indexOf(cur) + 1})`);
+    } else {
+      parts.unshift(tag);
+    }
+    cur = p;
+  }
+  return parts.length > 0 ? parts.join(" > ") : null;
+}
+
+function buildFullPath(el) {
+  const parts = [];
+  let cur = el;
+  for (let i = 0; i < 8 && cur && cur.nodeType === 1 && cur !== document.documentElement; i++) {
+    const tag = cur.tagName.toLowerCase();
+    if (tag === "body" || tag === "html") break;
+    const p = cur.parentElement;
+    if (!p) break;
+    const sibs = Array.from(p.children).filter(x => x.tagName === cur.tagName);
+    if (sibs.length > 1) {
+      parts.unshift(`${tag}:nth-of-type(${sibs.indexOf(cur) + 1})`);
+    } else {
+      parts.unshift(tag);
+    }
     cur = p;
   }
   return parts.join(" > ");
@@ -147,28 +265,51 @@ function extractOverlayText() {
   const overlays = [];
   const seen = new Set();
 
-  // 1. role="dialog" 또는 aria-modal="true" 요소
+  const vw = window.innerWidth || document.documentElement.clientWidth;
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+
+  // 뷰포트 내에 보이는지 + 최소 면적 충족하는지 확인
+  function isOverlayVisible(el) {
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    if (parseFloat(s.opacity) === 0) return false;
+
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    // 뷰포트 안에 있어야 함
+    if (rect.bottom <= 0 || rect.top >= vh || rect.right <= 0 || rect.left >= vw) return false;
+    return true;
+  }
+
+  // 뷰포트의 상당 부분을 가리는 모달/팝업인지 판별
+  function coversViewport(el) {
+    const rect = el.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    const vpArea = vw * vh;
+    // 뷰포트 면적의 10% 이상을 차지해야 팝업으로 인정
+    return area >= vpArea * 0.1;
+  }
+
+  // 1. role="dialog" 또는 aria-modal="true" — 확실한 팝업
   const ariaOverlays = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
 
-  // 2. 클래스 패턴으로 매칭
+  // 2. 클래스 패턴 — modal/popup/dialog만 (overlay는 오탐이 많아 제외)
   const classOverlays = document.querySelectorAll(
-    '[class*="modal"], [class*="popup"], [class*="dialog"], [class*="overlay"], [class*="Modal"], [class*="Popup"], [class*="Dialog"], [class*="Overlay"]'
+    '[class*="modal" i], [class*="popup" i], [class*="dialog" i], [class*="Modal"], [class*="Popup"], [class*="Dialog"]'
   );
 
-  // 3. position: fixed/absolute + z-index >= 100 + 크기 조건으로 감지
+  // 3. position: fixed + z-index >= 900 + 뷰포트 10% 이상 덮는 요소
   const allElements = document.querySelectorAll('*');
   const styleOverlays = [];
   for (const el of allElements) {
     const s = getComputedStyle(el);
-    const pos = s.position;
-    if (pos !== 'fixed' && pos !== 'absolute') continue;
+    // fixed만 (absolute는 오탐이 너무 많음 — 일반 레이아웃 요소가 잡힘)
+    if (s.position !== 'fixed') continue;
     const z = parseInt(s.zIndex) || 0;
-    if (z < 100) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 100 || rect.height <= 50) continue;
-    // header, nav, footer 태그 제외 (sticky header 오탐 방지)
+    if (z < 900) continue;
     const tag = el.tagName.toLowerCase();
-    if (['header', 'nav', 'footer'].includes(tag)) continue;
+    if (['header', 'nav', 'footer', 'aside'].includes(tag)) continue;
+    if (!coversViewport(el)) continue;
     styleOverlays.push(el);
   }
 
@@ -179,16 +320,15 @@ function extractOverlayText() {
     seen.add(el);
 
     const tag = el.tagName.toLowerCase();
-    if (['header', 'nav', 'footer'].includes(tag)) continue;
+    if (['header', 'nav', 'footer', 'aside'].includes(tag)) continue;
 
-    const s = getComputedStyle(el);
-    if (s.display === 'none' || s.visibility === 'hidden') continue;
-
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) continue;
+    if (!isOverlayVisible(el)) continue;
 
     const text = (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 500);
     if (!text) continue;
+
+    const s = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
 
     overlays.push({
       tag,
