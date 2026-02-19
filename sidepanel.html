@@ -24,6 +24,16 @@
       .auto-run-row input { width: 60px; flex: 0 0 60px; text-align: center; padding: 8px 4px; }
       .auto-run-row label { flex: 0 0 auto; font-size: 11px; margin: 0; white-space: nowrap; }
       .step-counter { font-size: 11px; color: #666; margin-top: 4px; display: none; }
+      .flow-section { margin-top: 10px; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+      .flow-header { font-size: 12px; font-weight: bold; padding: 8px 10px; background: #f5f5f5; border-bottom: 1px solid #e0e0e0; }
+      .flow-step { border-bottom: 1px solid #eee; }
+      .flow-step:last-child { border-bottom: none; }
+      .flow-step summary { cursor: pointer; font-size: 12px; padding: 6px 10px; display: flex; align-items: center; gap: 6px; }
+      .flow-step summary:hover { background: #fafafa; }
+      .flow-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: bold; color: white; flex-shrink: 0; }
+      .step-input .flow-badge { background: #1a73e8; }
+      .step-output .flow-badge { background: #34a853; }
+      .flow-pre { margin: 0; padding: 8px 10px; font-size: 11px; max-height: 300px; overflow-y: auto; border-top: 1px solid #eee; background: #fafafa; }
       .exec-result { font-size: 11px; padding: 6px 8px; border-radius: 4px; margin-top: 6px; display: none; }
       .exec-result.success { display: block; background: #e8f5e9; color: #2e7d32; }
       .exec-result.error { display: block; background: #fbe9e7; color: #c62828; }
@@ -67,24 +77,37 @@
       <!-- 상태 메시지 -->
       <pre id="out" style="font-size:11px; color:#666;">Ready.</pre>
 
-      <!-- Reasoning 출력 (접을 수 있음) -->
-      <label>AI 상황 분석</label>
-      <details open>
-        <summary>상세 보기</summary>
-        <pre id="reasoningOut">Ready.</pre>
-      </details>
+      <!-- Agent Flow: 4단계 사고과정 -->
+      <div class="flow-section">
+        <div class="flow-header">Agent Flow</div>
 
-      <!-- Action 출력 (녹색 강조) -->
-      <label>추천 액션</label>
-      <pre id="actionOut" style="background:#e8f5e9; border-left:3px solid #4caf50;">Ready.</pre>
+        <!-- Step 1: Reasoning Input -->
+        <details class="flow-step step-input">
+          <summary><span class="flow-badge">1</span> Reasoning Input</summary>
+          <pre id="reasoningInput" class="flow-pre">(empty)</pre>
+        </details>
+
+        <!-- Step 2: Reasoning Output -->
+        <details class="flow-step step-output" open>
+          <summary><span class="flow-badge">2</span> Reasoning Output</summary>
+          <pre id="reasoningOut" class="flow-pre">(empty)</pre>
+        </details>
+
+        <!-- Step 3: Action Input -->
+        <details class="flow-step step-input">
+          <summary><span class="flow-badge">3</span> Action Input</summary>
+          <pre id="actionInput" class="flow-pre">(empty)</pre>
+        </details>
+
+        <!-- Step 4: Action Output -->
+        <details class="flow-step step-output" open>
+          <summary><span class="flow-badge">4</span> Action Output</summary>
+          <pre id="actionOut" class="flow-pre">(empty)</pre>
+        </details>
+      </div>
+
       <button id="executeAction" class="execute" disabled>액션 실행</button>
       <div id="execResult" class="exec-result"></div>
-
-      <!-- 디버그 프롬프트 -->
-      <details>
-        <summary>Show prompts (debug)</summary>
-        <pre id="debugPrompt">(empty)</pre>
-      </details>
     </div>
 
     <script src="sidepanel.js"></script>

@@ -358,11 +358,12 @@ router.post('/captures', async (req, res) => {
     // 8. 응답
     res.json({
       captureId: capture._id.toString(),
+      reasoningPrompt,
       reasoningOutput,
+      actionPrompt,
       actionOutput,
       actionCommand,
-      done,
-      debugPrompt: `=== REASONING PROMPT ===\n${reasoningPrompt}\n\n=== ACTION PROMPT ===\n${actionPrompt}`
+      done
     });
   } catch (error) {
     console.error('Error creating capture:', error);

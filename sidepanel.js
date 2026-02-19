@@ -51,12 +51,19 @@ function showExecResult(success, message) {
   el.textContent = success ? `✓ ${message || "실행 완료"}` : `✗ ${message || "실행 실패"}`;
 }
 
-function setDebugPrompt(txt) {
-  const el = $("debugPrompt");
+function setFlowText(id, txt) {
+  const el = $(id);
   if (!el) return;
   const max = 30000;
   const s = String(txt || "");
   el.textContent = s.length > max ? s.slice(0, max) + "\n\n... (truncated)" : s;
+}
+
+function updateFlowUI(data) {
+  setFlowText("reasoningInput", data.reasoningPrompt);
+  setFlowText("reasoningOut", data.reasoningOutput);
+  setFlowText("actionInput", data.actionPrompt);
+  setFlowText("actionOut", data.actionOutput);
 }
 
 // Task 시작 플로우
@@ -92,8 +99,6 @@ $("startTask").addEventListener("click", async () => {
     $("currentTaskName").textContent = taskName;
     $("captureCount").textContent = "0";
     setOut(`Task 시작됨: ${taskName}`);
-    setReasoningOut("Ready.");
-    setActionOut("Ready.");
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
   }
@@ -108,8 +113,6 @@ $("captureViewport").addEventListener("click", async () => {
     }
 
     setOut("Capturing...");
-    setReasoningOut("...");
-    setActionOut("...");
 
     // 1. content.js에서 DOM 추출
     const tab = await getActiveTab();
@@ -142,14 +145,10 @@ $("captureViewport").addEventListener("click", async () => {
     currentTask.captureCount++;
     $("captureCount").textContent = currentTask.captureCount;
     setOut(`Step ${currentTask.captureCount} complete.`);
-    setReasoningOut(data.reasoningOutput);
-    setActionOut(data.actionOutput);
-    setDebugPrompt(data.debugPrompt);
+    updateFlowUI(data);
     setPendingCommand(data.actionCommand);
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
-    setReasoningOut("Error occurred.");
-    setActionOut("Error occurred.");
     setPendingCommand(null);
   }
 });
@@ -173,9 +172,6 @@ $("endTask").addEventListener("click", async () => {
     $("activeTaskSection").style.display = "none";
     $("taskName").value = "";
     setOut(`Task 종료됨. 총 ${captureCount}개 캡처.`);
-    setReasoningOut("Ready.");
-    setActionOut("Ready.");
-    setDebugPrompt("(empty)");
     setPendingCommand(null);
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
@@ -260,9 +256,7 @@ async function runOneStep() {
   // 3. UI 업데이트
   currentTask.captureCount++;
   $("captureCount").textContent = currentTask.captureCount;
-  setReasoningOut(data.reasoningOutput);
-  setActionOut(data.actionOutput);
-  setDebugPrompt(data.debugPrompt);
+  updateFlowUI(data);
   setPendingCommand(data.actionCommand);
 
   return data;
@@ -339,8 +333,6 @@ async function autoRunLoop() {
     }
   } catch (e) {
     setOut(`Auto Run 오류: ${e?.message || e}`);
-    setReasoningOut("Error occurred.");
-    setActionOut("Error occurred.");
   } finally {
     setAutoRunUI(false);
   }
