@@ -28,29 +28,63 @@ function buildObservation({ step, page, lastAction, axData, errors }) {
 
 /**
  * Select top K elements for prompt inclusion.
- * Prioritizes: disabled=false, elements with names, higher z-index position.
+ * Strategy: reserve slots for chrome (nav/header) and content separately
+ * so navigation links don't crowd out actual page content.
  */
+// parent_context patterns that indicate site chrome (nav, header, footer)
+const CHROME_PATTERN = /gnb|header|footer|breadcrumb|menu|cart|login|logout|\.fw-float|\.cs-center|side-panel/i;
+
+function isChrome(el) {
+  if (el.parent_context && CHROME_PATTERN.test(el.parent_context)) return true;
+  // Links in the very top of the page (y < 200) are likely header chrome
+  if (el.role === "link" && el.rect && el.rect.y < 200) return true;
+  return false;
+}
+
+function scoreElement(el, idx) {
+  let score = 0;
+  // Penalize disabled
+  if (el.states?.disabled) score -= 10;
+  // Boost elements with accessible names
+  if (el.name) score += 3;
+  // Boost form controls
+  if (["textbox", "searchbox", "combobox", "checkbox", "radio"].includes(el.role)) score += 2;
+  // Boost buttons
+  if (el.role === "button") score += 1;
+  // Preserve document order bias (earlier = slightly higher)
+  score -= idx * 0.01;
+  return score;
+}
+
 function pruneForPrompt(elements, topK = 50) {
   if (!elements || elements.length <= topK) return elements || [];
 
-  // Score each element for relevance
-  const scored = elements.map((el, idx) => {
-    let score = 0;
-    // Penalize disabled
-    if (el.states?.disabled) score -= 10;
-    // Boost elements with accessible names
-    if (el.name) score += 3;
-    // Boost form controls
-    if (["textbox", "searchbox", "combobox", "checkbox", "radio"].includes(el.role)) score += 2;
-    // Boost buttons
-    if (el.role === "button") score += 1;
-    // Preserve document order bias (earlier = slightly higher)
-    score -= idx * 0.01;
-    return { el, score };
+  // Split into chrome (nav/header) vs content elements
+  const chrome = [];
+  const content = [];
+
+  elements.forEach((el, idx) => {
+    const score = scoreElement(el, idx);
+    if (isChrome(el)) {
+      chrome.push({ el, score });
+    } else {
+      content.push({ el, score });
+    }
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK).map(s => s.el);
+  chrome.sort((a, b) => b.score - a.score);
+  content.sort((a, b) => b.score - a.score);
+
+  // Allocate: max 10 chrome slots, rest for content
+  const chromeSlots = Math.min(10, chrome.length);
+  const contentSlots = topK - chromeSlots;
+
+  const result = [
+    ...content.slice(0, contentSlots).map(s => s.el),
+    ...chrome.slice(0, chromeSlots).map(s => s.el)
+  ];
+
+  return result;
 }
 
 /**
