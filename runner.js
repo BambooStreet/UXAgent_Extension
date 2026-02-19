@@ -27,13 +27,17 @@ if (!window.__uxAgentRunnerInstalled) {
       case "click":
         return doClick(plan.selector);
       case "type":
-        return doType(plan.selector, plan.value);
+        return doType(plan.selector, plan.value, plan.pressEnter);
       case "scroll":
         return doScroll(plan.x, plan.y);
       case "select":
         return doSelect(plan.selector, plan.value);
       case "hover":
         return doHover(plan.selector);
+      case "press_enter":
+        return doPressEnter(plan.selector);
+      case "keypress":
+        return doKeypress(plan.key, plan.selector);
       default:
         return { success: false, error: `알 수 없는 action: ${plan.action}` };
     }
@@ -59,7 +63,7 @@ if (!window.__uxAgentRunnerInstalled) {
     return { success: true, log: `클릭 완료: ${selector} (label: "${(el.textContent || '').trim().slice(0, 50)}")` };
   }
 
-  function doType(selector, value) {
+  function doType(selector, value, pressEnter) {
     const el = findElement(selector);
     if (!el) return { success: false, error: `요소를 찾을 수 없음: ${selector}` };
 
@@ -72,7 +76,13 @@ if (!window.__uxAgentRunnerInstalled) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
 
-    return { success: true, log: `입력 완료: ${selector} → "${value}"` };
+    // pressEnter 옵션: 입력 후 바로 Enter 키 전송
+    if (pressEnter) {
+      dispatchKey(el, "Enter", 13);
+    }
+
+    const enterLog = pressEnter ? " + Enter" : "";
+    return { success: true, log: `입력 완료: ${selector} → "${value}"${enterLog}` };
   }
 
   function doScroll(x, y) {
@@ -98,5 +108,64 @@ if (!window.__uxAgentRunnerInstalled) {
     el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
 
     return { success: true, log: `호버 완료: ${selector}` };
+  }
+
+  // ── 키보드 이벤트 헬퍼 ──
+  const KEY_MAP = {
+    Enter:     { code: "Enter",      keyCode: 13 },
+    Tab:       { code: "Tab",        keyCode: 9 },
+    Escape:    { code: "Escape",     keyCode: 27 },
+    ArrowUp:   { code: "ArrowUp",    keyCode: 38 },
+    ArrowDown: { code: "ArrowDown",  keyCode: 40 },
+    ArrowLeft: { code: "ArrowLeft",  keyCode: 37 },
+    ArrowRight:{ code: "ArrowRight", keyCode: 39 },
+    Backspace: { code: "Backspace",  keyCode: 8 },
+    Space:     { code: "Space",      keyCode: 32, key: " " },
+    Delete:    { code: "Delete",     keyCode: 46 }
+  };
+
+  function dispatchKey(el, key, keyCode) {
+    const opts = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true };
+    el.dispatchEvent(new KeyboardEvent("keydown", opts));
+    el.dispatchEvent(new KeyboardEvent("keypress", opts));
+    el.dispatchEvent(new KeyboardEvent("keyup", opts));
+
+    // Enter인 경우 가장 가까운 form 제출도 시도
+    if (key === "Enter") {
+      const form = el.closest("form");
+      if (form) {
+        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      }
+    }
+  }
+
+  function doPressEnter(selector) {
+    const el = selector ? findElement(selector) : document.activeElement;
+    if (!el) return { success: false, error: `요소를 찾을 수 없음: ${selector || "(activeElement)"}` };
+
+    el.focus();
+    dispatchKey(el, "Enter", 13);
+    return { success: true, log: `Enter 키 전송 완료: ${selector || "(activeElement)"}` };
+  }
+
+  function doKeypress(key, selector) {
+    if (!key) return { success: false, error: "key가 지정되지 않았습니다." };
+
+    const el = selector ? findElement(selector) : document.activeElement;
+    if (!el) return { success: false, error: `요소를 찾을 수 없음: ${selector || "(activeElement)"}` };
+
+    el.focus();
+
+    const mapped = KEY_MAP[key];
+    const actualKey = mapped?.key || key;
+    const code = mapped?.code || key;
+    const keyCode = mapped?.keyCode || 0;
+
+    const opts = { key: actualKey, code, keyCode, which: keyCode, bubbles: true, cancelable: true };
+    el.dispatchEvent(new KeyboardEvent("keydown", opts));
+    el.dispatchEvent(new KeyboardEvent("keypress", opts));
+    el.dispatchEvent(new KeyboardEvent("keyup", opts));
+
+    return { success: true, log: `키 전송 완료: ${key} → ${selector || "(activeElement)"}` };
   }
 }

@@ -9,7 +9,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // 허용된 액션 목록
-const ALLOWED_ACTIONS = ["click", "type", "scroll", "navigate", "select", "hover"];
+const ALLOWED_ACTIONS = ["click", "type", "scroll", "navigate", "select", "hover", "press_enter", "keypress", "back"];
 
 function validateCommand(command) {
   if (!command || typeof command !== "object") {
@@ -25,6 +25,9 @@ function validateCommand(command) {
   }
   if (command.action === "navigate" && !command.url) {
     return "navigate 액션에는 url이 필요합니다.";
+  }
+  if (command.action === "keypress" && !command.key) {
+    return "keypress 액션에는 key가 필요합니다.";
   }
   return null; // valid
 }
@@ -68,7 +71,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
 
-      // 4.5. eid → selector 해석 (eid가 있고 selector가 없는 경우)
+      // 4.1. back은 chrome.tabs.goBack으로 처리
+      if (command.action === "back") {
+        await chrome.tabs.goBack(tab.id);
+        console.log("[background] navigated back");
+        sendResponse({ success: true, log: "뒤로가기 완료" });
+        return;
+      }
+
+      // 4.5. eid → selector 해석 (eid가 있고 selector가 없는 경우, press_enter/keypress 포함)
       if (command.eid && !command.selector) {
         console.log("[background] resolving eid:", command.eid);
         await chrome.scripting.executeScript({

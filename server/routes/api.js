@@ -201,7 +201,7 @@ ${overlaySection}
 
 **대상 요소**: 어떤 요소와 상호작용할지 (${useEid ? 'eid 사용, 예: e-a3f2b1c0' : 'item ID 사용, 예: item3'})
 
-**액션 유형**: click / type / select / scroll / hover / navigate
+**액션 유형**: click / type / select / scroll / hover / navigate / press_enter / keypress / back
 
 **액션 상세**: 구체적인 지시 (예: "'장바구니 담기' 버튼을 클릭" 또는 "검색창에 '도넛' 입력")
 
@@ -215,20 +215,30 @@ ${overlaySection}
 
 **실행 명령**: 아래 JSON 형식으로 브라우저가 자동 실행할 수 있는 명령을 출력하세요. 반드시 \`\`\`json 코드블록으로 감싸세요.
 ${useEid ? `- click: \`{"action":"click","eid":"e-..."}\`
-- type: \`{"action":"type","eid":"e-...","value":"입력할 텍스트"}\`
+- type: \`{"action":"type","eid":"e-...","value":"입력할 텍스트"}\` — 입력 후 바로 검색/제출하려면 \`"pressEnter":true\` 추가
+- type+Enter: \`{"action":"type","eid":"e-...","value":"검색어","pressEnter":true}\` — 검색창 입력 후 바로 검색 실행
 - scroll: \`{"action":"scroll","x":0,"y":500}\`
 - navigate: \`{"action":"navigate","url":"https://..."}\`
 - select: \`{"action":"select","eid":"e-...","value":"옵션값"}\`
 - hover: \`{"action":"hover","eid":"e-..."}\`
+- press_enter: \`{"action":"press_enter","eid":"e-..."}\` — 이미 입력된 필드에서 Enter 키만 전송
+- keypress: \`{"action":"keypress","key":"Escape"}\` — 특수 키 전송 (Escape, Tab, ArrowDown, ArrowUp, Space, Backspace, Delete). 모달/팝업 닫기에는 Escape 사용
+- back: \`{"action":"back"}\` — 브라우저 뒤로가기
 
-eid는 반드시 대상 요소의 eid 값을 그대로 사용하세요. 요소 목록에서 [e-abc123]과 같이 표시된 값입니다. 직접 eid를 만들지 마세요.` : `- click: \`{"action":"click","selector":"CSS 선택자"}\`
-- type: \`{"action":"type","selector":"CSS 선택자","value":"입력할 텍스트"}\`
+eid는 반드시 대상 요소의 eid 값을 그대로 사용하세요. 요소 목록에서 [e-abc123]과 같이 표시된 값입니다. 직접 eid를 만들지 마세요.
+검색창에 텍스트를 입력하고 검색을 실행해야 할 때는 반드시 \`"pressEnter":true\`를 함께 사용하세요.` : `- click: \`{"action":"click","selector":"CSS 선택자"}\`
+- type: \`{"action":"type","selector":"CSS 선택자","value":"입력할 텍스트"}\` — 입력 후 바로 검색/제출하려면 \`"pressEnter":true\` 추가
+- type+Enter: \`{"action":"type","selector":"CSS 선택자","value":"검색어","pressEnter":true}\` — 검색창 입력 후 바로 검색 실행
 - scroll: \`{"action":"scroll","x":0,"y":500}\`
 - navigate: \`{"action":"navigate","url":"https://..."}\`
 - select: \`{"action":"select","selector":"CSS 선택자","value":"옵션값"}\`
 - hover: \`{"action":"hover","selector":"CSS 선택자"}\`
+- press_enter: \`{"action":"press_enter","selector":"CSS 선택자"}\` — 이미 입력된 필드에서 Enter 키만 전송
+- keypress: \`{"action":"keypress","key":"Escape"}\` — 특수 키 전송 (Escape, Tab, ArrowDown, ArrowUp, Space, Backspace, Delete). 모달/팝업 닫기에는 Escape 사용
+- back: \`{"action":"back"}\` — 브라우저 뒤로가기
 
-selector는 반드시 대상 요소의 selector 필드 값을 그대로 사용하세요.`}
+selector는 반드시 대상 요소의 selector 필드 값을 그대로 사용하세요.
+검색창에 텍스트를 입력하고 검색을 실행해야 할 때는 반드시 \`"pressEnter":true\`를 함께 사용하세요.`}
   `.trim();
 }
 
