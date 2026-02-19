@@ -33,6 +33,7 @@
       .flow-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: bold; color: white; flex-shrink: 0; }
       .step-input .flow-badge { background: #1a73e8; }
       .step-output .flow-badge { background: #34a853; }
+      .badge-observe { background: #f57c00 !important; }
       .flow-pre { margin: 0; padding: 8px 10px; font-size: 11px; max-height: 300px; overflow-y: auto; border-top: 1px solid #eee; background: #fafafa; }
       .exec-result { font-size: 11px; padding: 6px 8px; border-radius: 4px; margin-top: 6px; display: none; }
       .exec-result.success { display: block; background: #e8f5e9; color: #2e7d32; }
@@ -77,31 +78,43 @@
       <!-- 상태 메시지 -->
       <pre id="out" style="font-size:11px; color:#666;">Ready.</pre>
 
-      <!-- Agent Flow: 4단계 사고과정 -->
+      <!-- Agent Flow: 6단계 사고과정 (Observe → Reasoning → Action) -->
       <div class="flow-section">
         <div class="flow-header">Agent Flow</div>
 
-        <!-- Step 1: Reasoning Input -->
+        <!-- Step 1: Observe Input -->
         <details class="flow-step step-input">
-          <summary><span class="flow-badge">1</span> Reasoning Input</summary>
+          <summary><span class="flow-badge badge-observe">1</span> Observe Input</summary>
+          <pre id="observeInput" class="flow-pre">(empty)</pre>
+        </details>
+
+        <!-- Step 2: Observe Output -->
+        <details class="flow-step step-output" open>
+          <summary><span class="flow-badge badge-observe">2</span> Observe Output</summary>
+          <pre id="observeOut" class="flow-pre">(empty)</pre>
+        </details>
+
+        <!-- Step 3: Reasoning Input -->
+        <details class="flow-step step-input">
+          <summary><span class="flow-badge">3</span> Reasoning Input</summary>
           <pre id="reasoningInput" class="flow-pre">(empty)</pre>
         </details>
 
-        <!-- Step 2: Reasoning Output -->
+        <!-- Step 4: Reasoning Output -->
         <details class="flow-step step-output" open>
-          <summary><span class="flow-badge">2</span> Reasoning Output</summary>
+          <summary><span class="flow-badge">4</span> Reasoning Output</summary>
           <pre id="reasoningOut" class="flow-pre">(empty)</pre>
         </details>
 
-        <!-- Step 3: Action Input -->
+        <!-- Step 5: Action Input -->
         <details class="flow-step step-input">
-          <summary><span class="flow-badge">3</span> Action Input</summary>
+          <summary><span class="flow-badge">5</span> Action Input</summary>
           <pre id="actionInput" class="flow-pre">(empty)</pre>
         </details>
 
-        <!-- Step 4: Action Output -->
+        <!-- Step 6: Action Output -->
         <details class="flow-step step-output" open>
-          <summary><span class="flow-badge">4</span> Action Output</summary>
+          <summary><span class="flow-badge">6</span> Action Output</summary>
           <pre id="actionOut" class="flow-pre">(empty)</pre>
         </details>
       </div>

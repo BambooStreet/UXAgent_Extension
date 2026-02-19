@@ -61,6 +61,8 @@ function setFlowText(id, txt) {
 }
 
 function updateFlowUI(data) {
+  setFlowText("observeInput", data.observePrompt);
+  setFlowText("observeOut", data.observeOutput);
   setFlowText("reasoningInput", data.reasoningPrompt);
   setFlowText("reasoningOut", data.reasoningOutput);
   setFlowText("actionInput", data.actionPrompt);

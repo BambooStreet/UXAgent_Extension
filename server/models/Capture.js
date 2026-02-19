@@ -65,6 +65,8 @@ const captureSchema = new mongoose.Schema({
     zIndex: Number,
     position: String
   }],
+  observePrompt: String,
+  observeOutput: String,
   reasoningPrompt: String,
   reasoningOutput: String,
   actionPrompt: String,

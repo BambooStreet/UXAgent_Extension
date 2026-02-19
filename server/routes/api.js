@@ -12,7 +12,8 @@ async function callOpenAI(prompt, moduleLabel) {
   const url = baseUrl.replace(/\/$/, "") + "/v1/chat/completions";
 
   const systemPrompts = {
-    reasoning: "당신은 UX 리서치 분석가입니다. 현재 페이지 상태를 분석하고, 팝업/모달을 감지하며, 태스크 진행도를 평가하고, 전략을 수립하세요. 간결하고 구조적으로 한국어로 답변하세요.",
+    observe: "당신은 웹 페이지 상태 관찰 전문가입니다. 현재 페이지 상태를 객관적으로 기술하고, 이전 액션이 있었다면 그 결과를 검증하세요. 사실만 기술하고, 전략이나 추천은 하지 마세요. 간결하고 구조적으로 한국어로 답변하세요.",
+    reasoning: "당신은 UX 리서치 분석가입니다. Observe 모듈의 관찰 결과를 바탕으로 태스크 진행도를 평가하고 전략을 수립하세요. 간결하고 구조적으로 한국어로 답변하세요.",
     action: "당신은 UX 액션 추천가입니다. 상황 분석을 바탕으로 정확히 하나의 구체적인 사용자 액션을 추천하세요. 페이지의 특정 인터랙티브 요소에 매칭하여 정확하게 안내하세요. 한국어로 답변하세요."
   };
 
@@ -52,8 +53,8 @@ async function callOpenAI(prompt, moduleLabel) {
   return String(answer);
 }
 
-// Reasoning 프롬프트 생성
-function buildReasoningPrompt({ taskName, page, memoryStream }) {
+// Observe 프롬프트 생성
+function buildObservePrompt({ taskName, page, lastStep }) {
   // 태그별 개수 요약
   const tagCounts = {};
   for (const el of page.elements) {
@@ -69,11 +70,60 @@ function buildReasoningPrompt({ taskName, page, memoryStream }) {
     const overlayItems = page.overlayTexts.map((o, i) =>
       `  [Overlay ${i + 1}] <${o.tag}>${o.role ? ` role="${o.role}"` : ''} z-index:${o.zIndex} position:${o.position}\n    Text: "${o.text}"`
     ).join('\n');
-    overlaySection = `\n\nDetected Popups/Modals/Overlays:\n${overlayItems}`;
+    overlaySection = `\nDetected Popups/Modals/Overlays:\n${overlayItems}`;
   } else {
-    overlaySection = '\n\nDetected Popups/Modals/Overlays: None';
+    overlaySection = '\nDetected Popups/Modals/Overlays: None';
   }
 
+  // 이전 액션 정보
+  let prevActionSection = '';
+  if (lastStep) {
+    prevActionSection = `
+Previous Action (Step ${lastStep.step}):
+- Summary: ${lastStep.summary}
+- Status: ${lastStep.status}
+- Target URL at that time: ${lastStep.url}${lastStep.error ? `\n- Error: ${lastStep.error}` : ''}`;
+  } else {
+    prevActionSection = '\nPrevious Action: None (this is the first step)';
+  }
+
+  return `
+Task: ${taskName}
+
+Current Page State:
+- URL: ${page.url}
+- Title: ${page.title}
+- Viewport: ${JSON.stringify(page.viewport)}
+- Interactive Elements: ${tagSummary} (total: ${page.elements.length})
+${overlaySection}
+${prevActionSection}
+
+아래 형식으로 한국어로 관찰 결과를 작성하세요. 사실만 기술하고 전략/추천은 하지 마세요:
+
+**페이지 상태**: 현재 URL, 페이지 제목, 화면에 보이는 주요 콘텐츠를 객관적으로 기술
+
+**화면 요소**: 주요 인터랙티브 요소들의 현황 (입력창, 버튼, 링크 등)
+
+**팝업/오버레이**: 현재 페이지를 가리는 팝업, 모달, 오버레이가 있는지 사실적으로 기술
+
+**이전 액션 검증**: 이전 액션이 있었다면, 현재 페이지 상태를 보고 그 액션이 실제로 성공했는지 판단. 아래 중 하나로 결론:
+- PREV_ACTION_VERIFIED: 이전 액션이 의도대로 수행됨 (예: 검색어 입력 후 검색 결과 페이지로 이동됨)
+- PREV_ACTION_FAILED: 이전 액션이 실패했거나 기대한 결과가 아님 (예: 클릭했는데 페이지가 변하지 않음). 실패 이유를 구체적으로 설명
+- NO_PREV_ACTION: 이전 액션 없음 (첫 번째 단계)
+
+**변화 감지**: 이전 단계와 비교하여 URL, 페이지 내용, 화면 구성에서 변화가 있는지 기술
+  `.trim();
+}
+
+// Observe 출력에서 이전 액션 검증 결과 추출
+function extractObserveVerification(observeOutput) {
+  if (/PREV_ACTION_VERIFIED/.test(observeOutput)) return 'verified';
+  if (/PREV_ACTION_FAILED/.test(observeOutput)) return 'failed';
+  return 'none';
+}
+
+// Reasoning 프롬프트 생성
+function buildReasoningPrompt({ taskName, observeOutput, memoryStream }) {
   // 메모리 스트림 (최근 10개)
   let memorySection = '';
   if (memoryStream && memoryStream.length > 0) {
@@ -85,29 +135,23 @@ function buildReasoningPrompt({ taskName, page, memoryStream }) {
     }).join('\n');
     memorySection = `\n\nPrevious Steps (Memory Stream):\n${memoryItems}`;
   } else {
-    memorySection = '\n\nPrevious Steps: This is the first capture.';
+    memorySection = '\n\nPrevious Steps: This is the first step.';
   }
 
   return `
 Task: ${taskName}
 
-Current Page:
-- URL: ${page.url}
-- Title: ${page.title}
-- Viewport: ${JSON.stringify(page.viewport)}
-- Interactive Elements Summary: ${tagSummary} (total: ${page.elements.length})
-${overlaySection}
+Observation (from observe module):
+${observeOutput}
 ${memorySection}
 
-아래 형식으로 한국어로 분석해주세요:
+Observe 모듈의 관찰 결과와 메모리 스트림을 바탕으로, 아래 형식으로 한국어로 분석해주세요:
 
-**현재 상태**: 사용자가 현재 어떤 페이지/화면에 있는지, 무엇이 보이는지 설명
+**이전 액션 평가**: Observe의 이전 액션 검증 결과를 반영. VERIFIED면 다음 단계로 진행, FAILED면 실패 원인을 분석하고 재시도 또는 대안 전략 제시
 
-**팝업 분석**: 페이지를 가리는 팝업, 모달, 오버레이가 있는지? 있다면 내용과 목적을 설명. 없으면 "팝업 없음"
+**진행도 평가**: 태스크 완료까지 얼마나 진행되었는지 평가. 메모리 스트림의 실행 상태(✓/✗/⏳)를 확인
 
-**진행도 평가**: 메모리 스트림을 바탕으로 태스크 완료까지 얼마나 진행되었는지 평가. 각 단계의 실행 상태(✓ 성공, ✗ 실패, ⏳ 미실행)를 반드시 확인하고, 실패하거나 미실행된 단계가 있으면 해당 작업을 다시 수행해야 한다고 판단
-
-**전략**: 태스크 목표를 향해 다음에 무엇을 해야 하는지. 팝업이 있다면 닫아야 하는지 상호작용해야 하는지
+**전략**: 태스크 목표를 향해 다음에 무엇을 해야 하는지. 팝업이 있다면 닫아야 하는지 상호작용해야 하는지. 이전 액션이 실패했다면 같은 방법을 반복하지 말고 대안을 제시
 
 **주의사항**: 주의해야 할 점 (예: 최소주문금액, 로그인 필요, 품절 등)
 
@@ -302,17 +346,43 @@ router.post('/captures', async (req, res) => {
     }
 
     const page = { url, title, viewport, elements, overlayTexts: overlayTexts || [] };
+    const memoryStream = task.memoryStream || [];
 
-    // 1. Reasoning 모듈 호출
-    const reasoningPrompt = buildReasoningPrompt({
+    // 이전 step 정보 (observe에서 검증용)
+    const lastStep = memoryStream.length > 0 ? memoryStream[memoryStream.length - 1] : null;
+
+    // 1. Observe 모듈 호출
+    const observePrompt = buildObservePrompt({
       taskName: task.taskName,
       page,
+      lastStep
+    });
+
+    const observeOutput = await callOpenAI(observePrompt, 'observe');
+
+    // 1-1. Observe 결과로 이전 step의 memoryStream 상태 업데이트
+    if (lastStep && lastStep.status === 'pending') {
+      const verification = extractObserveVerification(observeOutput);
+      if (verification === 'verified') {
+        lastStep.status = 'success';
+      } else if (verification === 'failed') {
+        lastStep.status = 'failed';
+        lastStep.error = 'Observe에서 페이지 레벨 검증 실패';
+      }
+      task.markModified('memoryStream');
+      await task.save();
+    }
+
+    // 2. Reasoning 모듈 호출 (observe 결과 기반)
+    const reasoningPrompt = buildReasoningPrompt({
+      taskName: task.taskName,
+      observeOutput,
       memoryStream: task.memoryStream || []
     });
 
     const reasoningOutput = await callOpenAI(reasoningPrompt, 'reasoning');
 
-    // 2. Action 모듈 호출
+    // 3. Action 모듈 호출
     const actionPrompt = buildActionPrompt({
       taskName: task.taskName,
       reasoningOutput,
@@ -321,14 +391,14 @@ router.post('/captures', async (req, res) => {
 
     const actionOutput = await callOpenAI(actionPrompt, 'action');
 
-    // 3. Step Summary + Action Command 추출
+    // 4. Step Summary + Action Command 추출
     const stepSummary = extractStepSummary(actionOutput);
     const actionCommand = extractActionCommand(actionOutput);
 
-    // 4. stepNumber 계산
+    // 5. stepNumber 계산
     const stepNumber = task.captureCount + 1;
 
-    // 5. Capture 저장
+    // 6. Capture 저장
     const capture = new Capture({
       taskId: task._id,
       url,
@@ -336,6 +406,8 @@ router.post('/captures', async (req, res) => {
       viewport,
       elements,
       overlayTexts: page.overlayTexts,
+      observePrompt,
+      observeOutput,
       reasoningPrompt,
       reasoningOutput,
       actionPrompt,
@@ -345,7 +417,7 @@ router.post('/captures', async (req, res) => {
 
     await capture.save();
 
-    // 6. Task 업데이트: captureCount 증가 + memoryStream에 pending 상태로 추가
+    // 7. Task 업데이트: captureCount 증가 + memoryStream에 pending 상태로 추가
     task.captureCount += 1;
     task.memoryStream.push({
       step: stepNumber,
@@ -355,12 +427,14 @@ router.post('/captures', async (req, res) => {
     });
     await task.save();
 
-    // 7. 태스크 완료 여부 판단
+    // 8. 태스크 완료 여부 판단
     const done = extractDoneSignal(reasoningOutput);
 
-    // 8. 응답
+    // 9. 응답
     res.json({
       captureId: capture._id.toString(),
+      observePrompt,
+      observeOutput,
       reasoningPrompt,
       reasoningOutput,
       actionPrompt,
