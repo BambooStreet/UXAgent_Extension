@@ -397,7 +397,9 @@ router.put('/captures/:captureId/verify', async (req, res) => {
       if (!success && error) {
         memEntry.error = String(error).slice(0, 200);
       }
+      task.markModified('memoryStream');
       await task.save();
+      console.log(`[verify] Step ${capture.stepNumber} → ${memEntry.status}`);
     }
 
     res.json({ verified: true, step: capture.stepNumber, status: memEntry?.status });
