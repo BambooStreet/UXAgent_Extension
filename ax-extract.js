@@ -207,13 +207,54 @@ if (!window.__axExtractInstalled) {
     return "";
   }
 
-  // ── Visibility check (reuse from content.js if available) ──
+  // ── Visibility check ──
   function axIsVisible(el) {
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
     const s = getComputedStyle(el);
     if (s.display === "none" || s.visibility === "hidden" || s.opacity === "0") return false;
     return true;
+  }
+
+  // Off-screen 판정: 좌표가 뷰포트에서 극단적으로 벗어난 요소
+  function isOffScreen(rect) {
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const margin = 500; // 뷰포트 밖 500px까지는 허용 (스크롤 가능 영역)
+    // 요소의 모든 변이 뷰포트 + margin 바깥이면 off-screen
+    return (rect.right < -margin || rect.left > vw + margin ||
+            rect.bottom < -margin || rect.top > vh + margin);
+  }
+
+  // 숨겨진 input(radio/checkbox)의 실제 클릭 가능한 프록시 요소 찾기
+  // 패턴: input이 position:absolute로 화면 밖에 숨겨지고, label이나 부모 li가 실제 UI
+  function findVisibleProxy(el) {
+    const tag = el.tagName.toLowerCase();
+    if (tag !== "input") return null;
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (type !== "radio" && type !== "checkbox") return null;
+
+    // 1. label[for=id]
+    if (el.id) {
+      const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (label && axIsVisible(label) && !isOffScreen(label.getBoundingClientRect())) {
+        return label;
+      }
+    }
+
+    // 2. 감싸는 <label>
+    const parentLabel = el.closest("label");
+    if (parentLabel && axIsVisible(parentLabel) && !isOffScreen(parentLabel.getBoundingClientRect())) {
+      return parentLabel;
+    }
+
+    // 3. 부모 <li> (쿠팡 등 커스텀 정렬 UI 패턴)
+    const parentLi = el.closest("li");
+    if (parentLi && axIsVisible(parentLi) && !isOffScreen(parentLi.getBoundingClientRect())) {
+      return parentLi;
+    }
+
+    return null;
   }
 
   // ── Build Tree Summary ──
@@ -257,16 +298,31 @@ if (!window.__axExtractInstalled) {
 
     const elements = [];
     const eidCounts = {};  // for collision handling
+    const proxySet = new Set(); // 이미 프록시로 등록된 요소 중복 방지
 
     for (const el of nodes) {
       if (!axIsVisible(el)) continue;
       if (elements.length >= 200) break;
 
-      const tag = el.tagName.toLowerCase();
+      const rect = el.getBoundingClientRect();
+
+      // Off-screen 요소: 프록시(label/li)를 찾아 대체
+      let targetEl = el;
+      let isProxied = false;
+      if (isOffScreen(rect)) {
+        const proxy = findVisibleProxy(el);
+        if (!proxy) continue; // 프록시도 없으면 건너뜀 (진짜 숨겨진 요소)
+        if (proxySet.has(proxy)) continue; // 같은 프록시가 이미 등록됨
+        proxySet.add(proxy);
+        targetEl = proxy;
+        isProxied = true;
+      }
+
+      const targetRect = isProxied ? targetEl.getBoundingClientRect() : rect;
+      const tag = el.tagName.toLowerCase(); // 원본 태그 유지 (의미 보존)
       const role = getSemanticRole(el);
       const name = computeAccessibleName(el);
       const states = getElementStates(el);
-      const rect = el.getBoundingClientRect();
 
       // Value for form controls
       let value = "";
@@ -286,7 +342,7 @@ if (!window.__axExtractInstalled) {
         }).filter(Boolean).join(" ").slice(0, 200);
       }
 
-      // Compute eid
+      // Compute eid (원본 요소 기준 — cross-step 안정성 유지)
       let eid = fingerprintElement(el);
       // Handle collisions: append -1, -2, etc.
       if (eidCounts[eid] === undefined) {
@@ -296,21 +352,22 @@ if (!window.__axExtractInstalled) {
         eid = `${eid}-${eidCounts[eid]}`;
       }
 
-      // CSS selector (use content.js uniqueSelector if available)
+      // CSS selector — 프록시 요소 기준 (실제 클릭 가능한 요소)
+      const selectorTarget = isProxied ? targetEl : el;
       let selector = "";
       if (typeof uniqueSelector === "function") {
         try {
-          selector = uniqueSelector(el);
+          selector = uniqueSelector(selectorTarget);
         } catch {
-          selector = buildBasicSelector(el);
+          selector = buildBasicSelector(selectorTarget);
         }
       } else {
-        selector = buildBasicSelector(el);
+        selector = buildBasicSelector(selectorTarget);
       }
 
       elements.push({
         eid,
-        tag,
+        tag: isProxied ? targetEl.tagName.toLowerCase() : tag,
         role,
         name,
         value,
@@ -318,12 +375,12 @@ if (!window.__axExtractInstalled) {
         states,
         selector,
         rect: {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          w: Math.round(rect.width),
-          h: Math.round(rect.height)
+          x: Math.round(targetRect.x),
+          y: Math.round(targetRect.y),
+          w: Math.round(targetRect.width),
+          h: Math.round(targetRect.height)
         },
-        parent_context: getParentContext(el)
+        parent_context: getParentContext(targetEl)
       });
     }
 
