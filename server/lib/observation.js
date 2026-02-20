@@ -13,9 +13,13 @@ function buildObservation({ step, page, lastAction, axData, errors }) {
     },
     last_action: lastAction || null,
     ax: {
+      obsVersion: axData?.obsVersion || 1,
       mode: axData?.mode || "dom_fallback",
       tree_summary: axData?.tree_summary || "",
-      interactive_elements: axData?.interactive_elements || []
+      interactive_elements: axData?.interactive_elements || [],
+      activeLayer: axData?.activeLayer || { present: false, type: null, rootBlockId: null },
+      blocks: axData?.blocks || [],
+      overlayTexts: axData?.overlayTexts || []
     },
     errors: errors || [],
     artifacts: {
@@ -29,7 +33,7 @@ function buildObservation({ step, page, lastAction, axData, errors }) {
 /**
  * Select top K elements for prompt inclusion.
  * 3-tier strategy: chrome → filter → main content
- * Classification uses HTML5/ARIA landmarks — no site-specific patterns or coordinates.
+ * When activeLayer is present, modal-inside elements get absolute priority.
  */
 
 // ── Tier classification (landmark-based) ──
@@ -59,6 +63,26 @@ function scoreElement(el, idx) {
 }
 
 function pruneForPrompt(elements, topK = 50) {
+  if (!elements || elements.length <= topK) return elements || [];
+
+  // Separate modal-inside vs background elements
+  const modalElements = elements.filter(el => el.inActiveLayer);
+  const bgElements = elements.filter(el => !el.inActiveLayer);
+
+  // If there's an active layer, modal elements get priority slots
+  if (modalElements.length > 0) {
+    const modalSlots = Math.min(modalElements.length, Math.ceil(topK * 0.7));
+    const bgSlots = topK - modalSlots;
+
+    const prunedModal = pruneGroup(modalElements, modalSlots);
+    const prunedBg = pruneGroup(bgElements, bgSlots);
+    return [...prunedModal, ...prunedBg];
+  }
+
+  return pruneGroup(elements, topK);
+}
+
+function pruneGroup(elements, topK) {
   if (!elements || elements.length <= topK) return elements || [];
 
   const buckets = { chrome: [], filter: [], main: [] };
@@ -92,7 +116,7 @@ function pruneForPrompt(elements, topK = 50) {
 
 /**
  * Format a single element for prompt inclusion (one-line).
- * Example: [e-abc123] button "Add to cart" disabled=false (340,520)
+ * Example: [e-abc123] button "Add to cart" disabled=false (340,520) @modal > "옵션 선택"
  */
 function formatElementForPrompt(el) {
   const parts = [`[${el.eid}]`];
@@ -100,6 +124,11 @@ function formatElementForPrompt(el) {
   if (el.role && el.role !== el.tag) parts.push(`role=${el.role}`);
   if (el.name) parts.push(`"${el.name.slice(0, 60)}"`);
   if (el.value) parts.push(`value="${el.value.slice(0, 40)}"`);
+
+  // Label source (only if not innerText/unknown — those are obvious)
+  if (el.labelSource && !["innerText", "unknown"].includes(el.labelSource)) {
+    parts.push(`src=${el.labelSource}`);
+  }
 
   // Key states
   const statesParts = [];
@@ -116,8 +145,16 @@ function formatElementForPrompt(el) {
   // Position
   if (el.rect) parts.push(`(${el.rect.x},${el.rect.y})`);
 
-  // Landmark region
-  if (el.landmark) parts.push(`@${el.landmark}`);
+  // Breadcrumbs (block hierarchy)
+  if (el.breadcrumbs && el.breadcrumbs.length > 0) {
+    parts.push(`@${el.breadcrumbs.join(" > ")}`);
+  } else if (el.landmark) {
+    // Fallback to landmark if no breadcrumbs
+    parts.push(`@${el.landmark}`);
+  }
+
+  // Active layer marker
+  if (el.inActiveLayer) parts.push("[MODAL]");
 
   // Parent context
   if (el.parent_context) parts.push(`in:${el.parent_context}`);

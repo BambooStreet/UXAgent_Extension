@@ -61,10 +61,20 @@ function buildObservePrompt({ taskName, page, lastStep, observation }) {
     ? formatTreeSummaryForPrompt(observation.ax.tree_summary)
     : '';
 
-  // 오버레이 텍스트
+  // Active Layer info
+  let activeLayerSection = '';
+  const al = observation?.ax?.activeLayer;
+  if (al && al.present) {
+    activeLayerSection = `\nActive Layer Detected: type="${al.type}" blockId=${al.rootBlockId || "unknown"}. 모달/팝업이 페이지를 가리고 있습니다. 모달 내부 요소를 우선 확인하세요.`;
+  }
+
+  // 오버레이 텍스트 (axData overlayTexts 우선, fallback to page)
+  const overlayData = observation?.ax?.overlayTexts?.length > 0
+    ? observation.ax.overlayTexts
+    : (page.overlayTexts || []);
   let overlaySection = '';
-  if (page.overlayTexts && page.overlayTexts.length > 0) {
-    const overlayItems = page.overlayTexts.map((o, i) =>
+  if (overlayData.length > 0) {
+    const overlayItems = overlayData.map((o, i) =>
       `  [Overlay ${i + 1}] <${o.tag}>${o.role ? ` role="${o.role}"` : ''} z-index:${o.zIndex} position:${o.position}\n    Text: "${o.text}"`
     ).join('\n');
     overlaySection = `\nDetected Popups/Modals/Overlays:\n${overlayItems}`;
@@ -93,6 +103,7 @@ Current Page State:
 - Title: ${page.title}
 - Viewport: ${JSON.stringify(page.viewport)}
 - AX Tree Summary: ${treeSummary}
+${activeLayerSection}
 ${overlaySection}
 ${prevActionSection}
 
@@ -102,7 +113,7 @@ ${prevActionSection}
 
 **화면 요소**: 주요 인터랙티브 요소들의 현황 (입력창, 버튼, 링크 등)
 
-**팝업/오버레이**: 현재 페이지를 가리는 팝업, 모달, 오버레이가 있는지 사실적으로 기술
+**팝업/오버레이**: 현재 페이지를 가리는 팝업, 모달, 오버레이가 있는지 사실적으로 기술. Active Layer가 감지되었다면 해당 모달/팝업의 내용을 상세히 기술
 
 **이전 액션 검증**: 이전 액션이 있었다면, 현재 페이지 상태를 보고 그 액션이 실제로 성공했는지 판단. 아래 중 하나로 결론:
 - PREV_ACTION_VERIFIED: 이전 액션이 의도대로 수행됨 (예: 검색어 입력 후 검색 결과 페이지로 이동됨)
@@ -177,10 +188,33 @@ function buildActionPrompt({ taskName, reasoningOutput, page, observation }) {
       .join("\n");
   }
 
-  // 오버레이 텍스트
+  // Active Layer info for action prompt
+  let activeLayerSection = '';
+  const al = observation?.ax?.activeLayer;
+  if (al && al.present) {
+    activeLayerSection = `\nActive Modal/Overlay: type="${al.type}". [MODAL] 표시된 요소들은 모달 내부에 있습니다. 모달이 열려 있을 때는 모달 내부 요소를 우선 대상으로 선택하세요.\n`;
+  }
+
+  // Blocks summary (compact)
+  let blocksSection = '';
+  const blocks = observation?.ax?.blocks;
+  if (blocks && blocks.length > 0) {
+    const blockLines = blocks
+      .filter(b => b.children && b.children.length > 0)
+      .slice(0, 10)
+      .map(b => `  ${b.blockId} ${b.type}${b.title ? ` "${b.title}"` : ''} (${b.children.length} elements)`);
+    if (blockLines.length > 0) {
+      blocksSection = `\nPage Blocks:\n${blockLines.join("\n")}\n`;
+    }
+  }
+
+  // 오버레이 텍스트 (axData 우선, fallback to page)
+  const overlayData = observation?.ax?.overlayTexts?.length > 0
+    ? observation.ax.overlayTexts
+    : (page.overlayTexts || []);
   let overlaySection = '';
-  if (page.overlayTexts && page.overlayTexts.length > 0) {
-    const overlayItems = page.overlayTexts.map((o, i) =>
+  if (overlayData.length > 0) {
+    const overlayItems = overlayData.map((o, i) =>
       `  [Overlay ${i + 1}] <${o.tag}> z-index:${o.zIndex} position:${o.position}\n    Text: "${o.text}"`
     ).join('\n');
     overlaySection = `\nDetected Overlays:\n${overlayItems}\n`;
@@ -193,7 +227,7 @@ Task: ${taskName}
 
 Situation Analysis (from reasoning module):
 ${reasoningOutput}
-
+${activeLayerSection}${blocksSection}
 Interactive Elements (top 50, AX tree based):
 ${elementsPreview}
 ${overlaySection}

@@ -173,6 +173,11 @@ $("captureViewport").addEventListener("click", async () => {
     const axData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_AX" });
 
     // 2. 백엔드로 전송 (Reasoning → Action 2단계 AI 호출)
+    // axData.overlayTexts 우선, content.js fallback
+    const overlayTexts = (axData?.overlayTexts?.length > 0)
+      ? axData.overlayTexts
+      : (extracted.overlayTexts || []);
+
     setOut("Reasoning...");
     const resp = await fetch(`${SERVER_URL}/api/captures`, {
       method: "POST",
@@ -183,7 +188,7 @@ $("captureViewport").addEventListener("click", async () => {
         title: extracted.title,
         viewport: extracted.viewport,
         elements: extracted.elements,
-        overlayTexts: extracted.overlayTexts || [],
+        overlayTexts,
         axData
       })
     });
@@ -308,6 +313,11 @@ async function runOneStep() {
   const axData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_AX" });
 
   // 2. 서버에 전송
+  // axData.overlayTexts 우선, content.js fallback
+  const overlayTexts = (axData?.overlayTexts?.length > 0)
+    ? axData.overlayTexts
+    : (extracted.overlayTexts || []);
+
   setOut("Reasoning...");
   const resp = await fetch(`${SERVER_URL}/api/captures`, {
     method: "POST",
@@ -318,7 +328,7 @@ async function runOneStep() {
       title: extracted.title,
       viewport: extracted.viewport,
       elements: extracted.elements,
-      overlayTexts: extracted.overlayTexts || [],
+      overlayTexts,
       axData
     })
   });
