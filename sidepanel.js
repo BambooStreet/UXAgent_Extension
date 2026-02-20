@@ -72,8 +72,13 @@ function setFlowText(id, txt) {
 }
 
 // ─── Debug Panel ───
+let _lastAxData = null;
+let _lastObservation = null;
+
 function updateDebugPanel(axData, observation) {
   if (!axData) return;
+  _lastAxData = axData;
+  _lastObservation = observation;
 
   // Summary line
   const al = axData.activeLayer;
@@ -95,30 +100,53 @@ function updateDebugPanel(axData, observation) {
   // overlayTexts
   $("dbgOverlayTexts").textContent = JSON.stringify(axData.overlayTexts ?? [], null, 2);
 
-  // interactive_elements (상위 10개만)
-  const elSlice = (axData.interactive_elements ?? []).slice(0, 10);
-  $("dbgElements").textContent = JSON.stringify(elSlice, null, 2)
-    + (elCount > 10 ? `\n\n... (${elCount - 10}개 더)` : "");
+  // interactive_elements (전체)
+  $("dbgElements").textContent = JSON.stringify(axData.interactive_elements ?? [], null, 2);
 
-  // observation (서버 조립 결과)
+  // observation (서버 조립 결과, elements는 축약)
   if (observation) {
-    // elements는 너무 길어서 count만 표시
     const obsCopy = JSON.parse(JSON.stringify(observation));
     const elLen = obsCopy.ax?.interactive_elements?.length ?? 0;
     if (obsCopy.ax?.interactive_elements) {
-      obsCopy.ax.interactive_elements = `[... ${elLen}개 elements (AX Extract 탭 참고)]`;
+      obsCopy.ax.interactive_elements = `[... ${elLen}개 elements — AX Extract 탭 또는 JSON 저장 참고]`;
     }
     $("dbgObservation").textContent = JSON.stringify(obsCopy, null, 2);
   }
+
+  // 다운로드 버튼 활성화
+  $("dbgDownloadAx").disabled = false;
+  $("dbgDownloadObs").disabled = !observation;
 }
 
-// Debug 패널 토글
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Debug 패널 토글 + 다운로드 버튼
 document.addEventListener("DOMContentLoaded", () => {
   $("debugToggle").addEventListener("click", () => {
     const body = $("debugBody");
     const icon = $("debugToggleIcon");
     const isOpen = body.classList.toggle("open");
     icon.textContent = isOpen ? "▲" : "▼";
+  });
+
+  $("dbgDownloadAx").addEventListener("click", () => {
+    if (!_lastAxData) return;
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    downloadJson(_lastAxData, `ax-extract-${ts}.json`);
+  });
+
+  $("dbgDownloadObs").addEventListener("click", () => {
+    if (!_lastObservation) return;
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    downloadJson(_lastObservation, `observation-${ts}.json`);
   });
 });
 
