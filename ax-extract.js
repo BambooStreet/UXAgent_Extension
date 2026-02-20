@@ -57,11 +57,14 @@ if (!window.__axExtractInstalled) {
     const placeholder = (el.getAttribute("placeholder") || "").trim();
     if (placeholder) return { name: placeholder.slice(0, 200), labelSource: "placeholder" };
 
-    // 8. textContent (for buttons, links, etc.)
+    // 8. innerText (for buttons, links, etc.) — innerText skips hidden text, textContent does not
     const tag = el.tagName.toLowerCase();
     if (["button", "a", "summary"].includes(tag) || el.getAttribute("role") === "button" || el.getAttribute("role") === "link") {
+      const inner = (el.innerText || "").trim().replace(/\s+/g, " ");
+      if (inner) return { name: inner.slice(0, 200), labelSource: "innerText" };
+      // textContent fallback (e.g. when innerText is unavailable in detached DOM)
       const txt = (el.textContent || "").trim().replace(/\s+/g, " ");
-      if (txt) return { name: txt.slice(0, 200), labelSource: "innerText" };
+      if (txt) return { name: txt.slice(0, 200), labelSource: "textContent" };
     }
 
     // 9. value for submit/reset buttons
@@ -340,11 +343,24 @@ if (!window.__axExtractInstalled) {
       return a.area - b.area; // smaller area = actual dialog (not backdrop)
     });
 
-    // Backdrop vs Dialog tie-break: if top candidate contains another candidate, pick the inner one
+    // Backdrop vs Dialog tie-break:
+    // Only swap to inner candidate when winner looks like a backdrop/overlay (not itself a dialog),
+    // and the inner candidate is a "real" dialog element.
     let winner = candidates[0];
-    for (let i = 1; i < candidates.length; i++) {
-      if (winner.el.contains(candidates[i].el)) {
-        winner = candidates[i]; // inner dialog preferred over backdrop
+    const isRealDialog = (c) => {
+      const el = c.el;
+      return el.tagName.toLowerCase() === "dialog" ||
+             el.getAttribute("role") === "dialog" ||
+             el.getAttribute("aria-modal") === "true";
+    };
+    const isBackdrop = (c) => c.type === "overlay" && !isRealDialog(c);
+
+    if (isBackdrop(winner)) {
+      for (let i = 1; i < candidates.length; i++) {
+        if (winner.el.contains(candidates[i].el) && isRealDialog(candidates[i])) {
+          winner = candidates[i]; // genuine dialog inside backdrop wins
+          break;
+        }
       }
     }
 
@@ -570,7 +586,21 @@ if (!window.__axExtractInstalled) {
       bgNodes = nodes;
     }
 
-    // Process nodes: modal-inside first, then background (stable order within each group)
+    // Stable sort within each group: z-index desc, DOM order as tie-breaker
+    // (Array.sort is stable in modern JS, so same-z elements keep original DOM order)
+    function sortByZIndex(arr) {
+      return arr.slice().sort((a, b) => {
+        const za = parseInt(getComputedStyle(a).zIndex) || 0;
+        const zb = parseInt(getComputedStyle(b).zIndex) || 0;
+        return zb - za;
+      });
+    }
+    if (hasActiveLayer) {
+      modalNodes = sortByZIndex(modalNodes);
+      bgNodes = sortByZIndex(bgNodes);
+    }
+
+    // Process nodes: modal-inside first, then background
     const orderedNodes = hasActiveLayer ? [...modalNodes, ...bgNodes] : bgNodes;
 
     const elements = [];
@@ -644,6 +674,10 @@ if (!window.__axExtractInstalled) {
       // Mark if inside active layer
       const inActiveLayer = hasActiveLayer && activeRoot.contains(el);
 
+      // For blocks/breadcrumbs: use proxy (visible UI element) when proxied,
+      // so hierarchy reflects what the user actually sees, not the hidden input.
+      const blockRefEl = isProxied ? targetEl : el;
+
       elements.push({
         eid,
         tag: isProxied ? targetEl.tagName.toLowerCase() : tag,
@@ -664,20 +698,37 @@ if (!window.__axExtractInstalled) {
         landmark: getNearestLandmark(targetEl),
         inActiveLayer,
         // Temporary ref for block building (removed from output)
-        _domEl: el
+        _domEl: blockRefEl
       });
     }
 
     // 2. Build Blocks
     const blocks = buildBlocks(elements);
 
-    // 3. Compute activeLayer blockId
-    let activeLayerBlockId = "";
+    // 3. Compute activeLayer blockId and ensure it exists in blocks
+    let activeLayerBlockId = null;
+    let activeLayerTitle = null;
     if (hasActiveLayer) {
       const stable = getStableAttr(activeRoot);
       const tag = activeRoot.tagName.toLowerCase();
       const role = (activeRoot.getAttribute("role") || "").trim() || tag;
-      activeLayerBlockId = `b-${djb2Hash(role + (stable || tag + activeRoot.className))}`;
+      const candidateId = `b-${djb2Hash(role + (stable || tag + activeRoot.className))}`;
+
+      // Check if this blockId actually exists in the built blocks array
+      if (blocks.some(b => b.blockId === candidateId)) {
+        activeLayerBlockId = candidateId;
+      } else {
+        // activeRoot is not in BLOCK_SELECTORS — force-add it so rootBlockId is valid
+        activeLayerTitle = getBlockTitle(activeRoot);
+        blocks.unshift({
+          blockId: candidateId,
+          type: role,
+          title: activeLayerTitle,
+          children: elements.filter(e => e.inActiveLayer).map(e => e.eid),
+          _forced: true
+        });
+        activeLayerBlockId = candidateId;
+      }
     }
 
     // 4. Extract overlay texts (reuse allElements from activeLayer scan)
