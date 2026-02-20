@@ -518,7 +518,8 @@ router.post('/captures', async (req, res) => {
       actionPrompt,
       actionOutput,
       actionCommand,
-      done
+      done,
+      observation  // debug용: buildObservation 결과 포함
     });
   } catch (error) {
     console.error('Error creating capture:', error);

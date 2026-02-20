@@ -19,6 +19,17 @@
       button.execute:disabled { background: #ccc; color: #888; cursor: not-allowed; }
       button.stop { background: #d93025; color: white; border: none; border-radius: 4px; display: none; }
       button.stop:hover { background: #b3221b; }
+      .debug-section { margin-top: 10px; border: 1px solid #c5cae9; border-radius: 6px; overflow: hidden; }
+      .debug-header { font-size: 12px; font-weight: bold; padding: 7px 10px; background: #e8eaf6; border-bottom: 1px solid #c5cae9; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+      .debug-header:hover { background: #dde1f5; }
+      .debug-body { display: none; }
+      .debug-body.open { display: block; }
+      .debug-summary { font-size: 11px; padding: 5px 10px; background: #f3f4fd; border-bottom: 1px solid #e0e0e0; color: #3949ab; }
+      .debug-step { border-bottom: 1px solid #eee; }
+      .debug-step:last-child { border-bottom: none; }
+      .debug-step summary { cursor: pointer; font-size: 11px; font-weight: bold; padding: 6px 10px; color: #3949ab; }
+      .debug-step summary:hover { background: #f3f4fd; }
+      .debug-pre { margin: 0; padding: 8px 10px; font-size: 10px; max-height: 260px; overflow-y: auto; background: #fafafa; white-space: pre-wrap; word-break: break-all; }
       .auto-run-row { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
       .auto-run-row button { flex: 1; margin-top: 0; }
       .auto-run-row input { width: 60px; flex: 0 0 60px; text-align: center; padding: 8px 4px; }
@@ -133,6 +144,44 @@
 
       <button id="executeAction" class="execute" disabled>액션 실행</button>
       <div id="execResult" class="exec-result"></div>
+
+      <!-- Debug Panel -->
+      <div class="debug-section">
+        <div class="debug-header" id="debugToggle">
+          <span>🔍 Debug</span>
+          <span id="debugToggleIcon">▼</span>
+        </div>
+        <div class="debug-body" id="debugBody">
+          <div class="debug-summary" id="debugSummary">캡처 후 표시됩니다.</div>
+
+          <!-- AX Extract Raw -->
+          <details class="debug-step">
+            <summary>AX Extract (ax-extract.js 결과)</summary>
+            <details class="debug-step" style="border:none;">
+              <summary style="padding-left:20px; color:#555;">activeLayer</summary>
+              <pre id="dbgActiveLayer" class="debug-pre">(empty)</pre>
+            </details>
+            <details class="debug-step" style="border:none;">
+              <summary style="padding-left:20px; color:#555;">blocks</summary>
+              <pre id="dbgBlocks" class="debug-pre">(empty)</pre>
+            </details>
+            <details class="debug-step" style="border:none;">
+              <summary style="padding-left:20px; color:#555;">overlayTexts</summary>
+              <pre id="dbgOverlayTexts" class="debug-pre">(empty)</pre>
+            </details>
+            <details class="debug-step" style="border:none;">
+              <summary style="padding-left:20px; color:#555;">interactive_elements (상위 10개)</summary>
+              <pre id="dbgElements" class="debug-pre">(empty)</pre>
+            </details>
+          </details>
+
+          <!-- Observation Assembled -->
+          <details class="debug-step">
+            <summary>Observation (buildObservation 결과)</summary>
+            <pre id="dbgObservation" class="debug-pre">(empty)</pre>
+          </details>
+        </div>
+      </div>
     </div>
 
     <script src="sidepanel.js"></script>

@@ -71,6 +71,57 @@ function setFlowText(id, txt) {
   el.textContent = s.length > max ? s.slice(0, max) + "\n\n... (truncated)" : s;
 }
 
+// ─── Debug Panel ───
+function updateDebugPanel(axData, observation) {
+  if (!axData) return;
+
+  // Summary line
+  const al = axData.activeLayer;
+  const alStatus = al?.present
+    ? `🟡 Active Layer: ${al.type} (blockId: ${al.rootBlockId || "none"})`
+    : "⚪ Active Layer: none";
+  const elCount = axData.element_count ?? axData.interactive_elements?.length ?? 0;
+  const blockCount = axData.blocks?.length ?? 0;
+  const overlayCount = axData.overlayTexts?.length ?? 0;
+  $("debugSummary").textContent =
+    `v${axData.obsVersion ?? "?"} | ${elCount} elements | ${blockCount} blocks | ${overlayCount} overlays | ${alStatus}`;
+
+  // activeLayer
+  $("dbgActiveLayer").textContent = JSON.stringify(axData.activeLayer, null, 2);
+
+  // blocks
+  $("dbgBlocks").textContent = JSON.stringify(axData.blocks ?? [], null, 2);
+
+  // overlayTexts
+  $("dbgOverlayTexts").textContent = JSON.stringify(axData.overlayTexts ?? [], null, 2);
+
+  // interactive_elements (상위 10개만)
+  const elSlice = (axData.interactive_elements ?? []).slice(0, 10);
+  $("dbgElements").textContent = JSON.stringify(elSlice, null, 2)
+    + (elCount > 10 ? `\n\n... (${elCount - 10}개 더)` : "");
+
+  // observation (서버 조립 결과)
+  if (observation) {
+    // elements는 너무 길어서 count만 표시
+    const obsCopy = JSON.parse(JSON.stringify(observation));
+    const elLen = obsCopy.ax?.interactive_elements?.length ?? 0;
+    if (obsCopy.ax?.interactive_elements) {
+      obsCopy.ax.interactive_elements = `[... ${elLen}개 elements (AX Extract 탭 참고)]`;
+    }
+    $("dbgObservation").textContent = JSON.stringify(obsCopy, null, 2);
+  }
+}
+
+// Debug 패널 토글
+document.addEventListener("DOMContentLoaded", () => {
+  $("debugToggle").addEventListener("click", () => {
+    const body = $("debugBody");
+    const icon = $("debugToggleIcon");
+    const isOpen = body.classList.toggle("open");
+    icon.textContent = isOpen ? "▲" : "▼";
+  });
+});
+
 function updateFlowUI(data) {
   // 히스토리에 저장
   const stepNum = flowHistory.length + 1;
@@ -207,6 +258,7 @@ $("captureViewport").addEventListener("click", async () => {
     lastCaptureId = data.captureId;
     updateFlowUI(data);
     setPendingCommand(data.actionCommand);
+    updateDebugPanel(axData, data.observation);
   } catch (e) {
     setOut(`Error: ${e?.message || e}`);
     setPendingCommand(null);
@@ -346,6 +398,7 @@ async function runOneStep() {
   lastCaptureId = data.captureId;
   updateFlowUI(data);
   setPendingCommand(data.actionCommand);
+  updateDebugPanel(axData, data.observation);
 
   return data;
 }
